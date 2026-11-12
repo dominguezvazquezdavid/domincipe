@@ -61,7 +61,11 @@ Domincipe es una web **de recetas** para uso personal, con fines **educativos**:
 
 ## 5. Convenciones
 
-- **Código en inglés**; **documentación en español**. Comentarios explican el *por qué*, no el *qué*.
+- **Código en inglés; documentación en español.** La frontera la marca el **tipo de fichero**, no quién lo lea ni lo pequeño que sea:
+  - **Ficheros de código y de configuración/build → inglés, comentarios incluidos.** Afecta a identificadores, mensajes de log y de excepción, y a cualquier comentario. Ejemplos: `*.java`, `*.ts`, `*.tsx`, `*.css`, `pom.xml`, `config/checkstyle/*.xml`, `.editorconfig`, `.gitignore`, `.gitattributes`, `Dockerfile`, los `docker-compose*.yml`, `scripts/*.sh` y las anotaciones de configuración de herramientas.
+  - **Ficheros de documentación → español.** Ejemplos: `README.md`, `PROJECT.md`, `AGENTS.md`, `STATUS.md`, todo `openspec/**` (`proposal.md`, `design.md`, `tasks.md`, `specs/`, `config.yaml`) y las descripciones de PR o issue.
+  - No hay excepciones del tipo «es un fichero pequeño» o «solo lo lee el agente»: si es código o configuración, va en inglés.
+- Los **comentarios explican el *por qué*, no el *qué***, en el idioma que corresponda al fichero según la regla anterior.
 - **Commits SIEMPRE en inglés** (asunto y cuerpo), con **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`. Ni el asunto ni el cuerpo se escriben en español, aunque la documentación del proyecto sí lo esté.
 - **Ramas**: `main` (estable), `feat/<change-id>-<slug>`, `fix/<slug>`.
 - **Package base**: `com.domincipe.<servicio>`.
@@ -93,6 +97,7 @@ Domincipe es una web **de recetas** para uso personal, con fines **educativos**:
 - Inventar flags, APIs, versiones o comportamientos.
 - Duplicar en este archivo lo que ya vive en `PROJECT.md`.
 - Escribir mensajes de commit en español (o sin `Conventional Commits`): siempre en inglés.
+- Escribir en español cualquier cosa dentro de un fichero de código o de configuración: identificadores, mensajes y **comentarios** van en inglés.
 - Cerrar un change con tests en rojo o cobertura por debajo del gate.
 
 ---
