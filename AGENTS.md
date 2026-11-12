@@ -2,7 +2,7 @@
 
 > Instrucciones para agentes de IA (Cline, Cursor, Claude Code, Codex, etc.).
 > Convención: [agents.md](https://agents.md). **Corto por diseño** — el detalle vive en [PROJECT.md](./PROJECT.md).
-> Orden de lectura: `AGENTS.md` → `PROJECT.md` → `openspec/` → `README.md`.
+> Orden de lectura: `AGENTS.md` → `STATUS.md` (foto fechada del estado) → `PROJECT.md` → `openspec/` → `README.md`.
 
 ---
 
@@ -115,5 +115,6 @@ Domincipe es una web **de recetas** para uso personal, con fines **educativos**:
 ## 9. Recursos
 
 - [PROJECT.md](./PROJECT.md) — fuente de verdad del proyecto.
+- [STATUS.md](./STATUS.md) — foto fechada del estado real (caché de contexto, **no** fuente de verdad: caduca, se refresca con sus propios comandos).
 - [openspec/](./openspec/) — specs y changes (SDD).
 - [README.md](./README.md) — arranque rápido.
