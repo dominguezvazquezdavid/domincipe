@@ -1,0 +1,71 @@
+# Tasks
+
+## 1. Toolchain y ficheros raíz
+
+- [x] 1.1 Crear `README.md`, `LICENSE` (MIT), `.gitignore` y `.editorconfig` — ya creados junto con esta propuesta por orden explícita del usuario. Verificación: `git check-ignore -v .env` lista la regla que lo excluye, `head -1 LICENSE` contiene `MIT License` y `.editorconfig` declara `charset = utf-8`, `end_of_line = lf`, 4 espacios para `*.java` y 2 para `*.ts`.
+- [ ] 1.2 Verificar contra Maven Central la última versión estable de Spring Boot 3.x, la versión de la línea 2.x de `springdoc-openapi-starter-webmvc-ui` compatible con Spring Boot 3.x y la imagen de Kafka 4.x en su registro oficial; fijar todas en properties del parent y registrar las elegidas en `PROJECT.md` §4. Verificación: la consulta reproducible queda documentada en el PR y las versiones del POM coinciden con las publicadas.
+- [ ] 1.3 Añadir Maven Wrapper (`mvnw`, `mvnw.cmd`, `.mvn/wrapper/`) con la versión de Maven fijada. Verificación: `./mvnw -B -ntp -v` muestra exactamente la versión fijada en el wrapper.
+- [ ] 1.4 Crear `config/checkstyle/checkstyle.xml` (prefijo `com.domincipe`, 120 columnas, sin *star imports* ni imports sin uso) y `.npmrc` con `engine-strict=true`. Verificación: `./mvnw -B -ntp validate` no falla por configuración del plugin y `npm config get engine-strict` en `apps/web-frontend` devuelve `true`.
+
+## 2. Parent POM y política de build
+
+- [ ] 2.1 Crear el parent POM (Java 21, `spring-boot-starter-parent`, properties de versiones, `dependencyManagement` de los módulos internos y `pluginManagement` con *surefire*, *failsafe*, *jacoco*, *checkstyle* y *exec*) declarando los ocho módulos. Verificación: `./mvnw -B -ntp help:evaluate -Dexpression=project.modules -q -DforceStdout` lista los ocho módulos esperados.
+- [ ] 2.2 Implementar `scripts/verify-modules.sh` y engancharlo con `exec-maven-plugin` a la fase `validate` del POM raíz. Verificación: crear temporalmente `apps/services/tmp-check/pom.xml`, comprobar que `./mvnw -B -ntp validate` falla nombrando ese directorio, y eliminarlo después.
+- [ ] 2.3 Configurar el gate JaCoCo (0.80 líneas / 0.70 ramas, exclusiones de `*Application`, `dto` y `*Impl`) y resolver el caso de módulos sin clases analizables según lo verificado empíricamente (exclusión del módulo o `jacoco.skip`), documentando la opción aplicada en el POM. Verificación: `./mvnw -B -ntp verify` pasa y, con un test desechable que deja código sin cubrir en `libs/common-observability`, el build falla por el gate (el test se revierte).
+- [ ] 2.4 Documentar en el PR la decisión de D5 derivada de la verificación de 2.3. Verificación: el POM y el comentario de la sección `jacoco` describen la misma regla.
+
+## 3. Librería `common-observability`
+
+- [ ] 3.1 Implementar `RequestIdFilter` (`OncePerRequestFilter`) que reutiliza o genera `X-Request-Id`, lo devuelve en la respuesta y lo publica en el MDC; tests unitarios con MockMvc para el caso con cabecera y sin cabecera. Verificación: `./mvnw -B -ntp -pl libs/common-observability test` en verde con ambos escenarios cubiertos.
+- [ ] 3.2 Implementar `AppEnvironmentProperties` (`enum` `local`/`dev`/`obs`, `@Validated`, sin valor por defecto) y la auto-configuración con exposure de `health`, `liveness`, `readiness`, `prometheus`, hilos virtuales y apagado ordenado; registrar en `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`. Verificación: test con `ApplicationContextRunner` que comprueba que la auto-configuración se aplica y que falla sin `APP_ENVIRONMENT` nombrando la propiedad.
+- [ ] 3.3 Escribir `libs/common-observability/README.md` con el snippet de dependencia y las variables que consume. Verificación: el snippet copiado en un módulo de prueba compila y el servicio arranca con las variables del README.
+
+## 4. Librería `common-dto`
+
+- [ ] 4.1 Crear el módulo con `ErrorResponse` y `PageResponse` y sus tests unitarios. Verificación: `./mvnw -B -ntp -pl libs/common-dto verify` en verde y el informe JaCoCo del módulo se genera sin romper el gate por falta de clases analizables.
+
+## 5. Servicios Java (`api-gateway` y los cinco servicios)
+
+- [ ] 5.1 Crear los seis módulos con su clase `*Application`, `application.yml` sin valores de entorno y dependencia de `common-observability`. Verificación: `./mvnw -B -ntp verify` compila los seis módulos y cada clase de arranque se carga en el contexto de test.
+- [ ] 5.2 Implementar por servicio los tests de contrato de runtime: `/actuator/health`, `liveness`, `readiness`, `/actuator/prometheus` y cabecera `X-Request-Id` con valor recibido y generado. Verificación: los tests pasan en los seis módulos con `@SpringBootTest(webEnvironment = RANDOM_PORT)`.
+- [ ] 5.3 Implementar el test de fallo temprano por servicio: arranque sin `APP_ENVIRONMENT` y arranque con valor no admitido. Verificación: ambos tests en verde, el primero comprobando que el mensaje nombra la variable y el segundo que lista los valores válidos.
+- [ ] 5.4 Ejecutar el gate de cobertura sobre los seis servicios con los tests anteriores. Verificación: `./mvnw -B -ntp verify` en verde e informes en `target/site/jacoco/index.html` con los umbrales cumplidos (o exclusión documentada si el módulo queda sin clases analizables).
+- [ ] 5.5 Añadir `springdoc-openapi-starter-webmvc-ui`, alimentar título y versión del documento desde el módulo y mapear `APP_DOCS_ENABLED` a `springdoc.api-docs.enabled` y `springdoc.swagger-ui.enabled`; incluir tests de `/v3/api-docs` (JSON con `openapi` 3.x, `info.title` e `info.version`) y de `/swagger-ui.html`, más el caso desactivado. Verificación: los cuatro scenarios del requisito «Documentación OpenAPI publicada» pasan en los seis módulos y con `APP_DOCS_ENABLED=false` ambos endpoints responden 404.
+
+## 6. Frontend (`apps/web-frontend`)
+
+- [ ] 6.1 Crear el proyecto Vite + React 19 + TypeScript estricto, Tailwind y configuración base de shadcn/ui. Verificación: `npm run build` termina con código 0 y genera `dist/index.html` más un JS con hash.
+- [ ] 6.2 Configurar ESLint 9 (plana) + `typescript-eslint` y los scripts `dev`, `build`, `lint`, `test`, `test:coverage`. Verificación: `npm run lint` en verde y, con una variable declarada y no usada, termina distinto de 0 nombrando el fichero.
+- [ ] 6.3 Implementar `App` con `createBrowserRouter`, `QueryClientProvider`, layout y ruta inicial con estado vacío, y el test de humo con Testing Library. Verificación: `npm test` en verde, el test encuentra el título `Domincipe` y no se registran errores de consola.
+- [ ] 6.4 Implementar la validación de `VITE_API_BASE_URL` en `vite.config.ts` y su lectura única en `src/config/env.ts`, con test unitario del cliente de datos. Verificación: `npm run build` sin la variable falla nombrando la variable; con ella, el test del cliente apunta a la URL configurada.
+- [ ] 6.5 Comprobar que no quedan hosts del backend en `src/`. Verificación: la búsqueda documentada en el PR no devuelve coincidencias fuera de la configuración de entorno.
+
+## 7. Infraestructura Docker y Compose
+
+- [ ] 7.1 Crear `ops/docker/java-service.Dockerfile` parametrizado por `ARG MODULE` y `ops/docker/web-frontend.Dockerfile`, ambos multi-stage con usuario no-root. Verificación: `docker build` de un servicio y del frontend termina con código 0 y `docker run --rm <imagen> id -u` devuelve un UID distinto de 0.
+- [ ] 7.2 Implementar `scripts/build-images.sh` que etiqueta cada imagen con `latest` y con el SHA corto de git. Verificación: `docker image ls` muestra ambos tags apuntando al mismo `IMAGE ID`.
+- [ ] 7.3 Crear `ops/compose/docker-compose.base.yml` con PostgreSQL 16, Kafka 4.x KRaft, MinIO, MailHog, los seis servicios, healthchecks, `depends_on` por condición, `stop_grace_period`, límites de CPU/memoria y las tres redes; incluir los contenedores de inicialización idempotentes de schemas, topics y bucket. Verificación: `docker compose -f ops/compose/docker-compose.base.yml config` valida sin errores y no aparece ningún `sleep` en el fichero.
+- [ ] 7.4 Crear `ops/compose/docker-compose.dev.yml` con puertos publicados y volúmenes persistentes de datos. Verificación: base + dev levanta el entorno con `up --wait` en verde.
+- [ ] 7.5 Crear `.env.example` con todas las variables usadas por Compose y por los servicios, incluida `COMPOSE_FILE` con los tres ficheros de Compose. Verificación: copiar `.env.example` a `.env` y ejecutar `docker compose up --wait` funciona sin editar nada más y levanta también la observabilidad.
+- [ ] 7.6 Implementar `scripts/verify-environment.sh` con las comprobaciones de aprovisionamiento repetibles: `\dn` con los cinco schemas, topics del contrato de eventos, bucket de MinIO y SMTP de MailHog aceptando conexión. Verificación: el script sale con 0 en un entorno recién levantado y sale distinto de 0 si se elimina un schema.
+- [ ] 7.7 Verificar el aislamiento de redes con el entorno levantado. Verificación: `docker compose exec web-frontend getent hosts postgres` falla y `docker compose exec api-gateway getent hosts postgres` resuelve.
+- [ ] 7.8 Implementar `scripts/verify-shutdown.sh` que lanza una petición, ejecuta `docker compose stop` durante su procesamiento y comprueba el código de salida del contenedor. Verificación: la petición responde con éxito y el contenedor figura con código 0.
+
+## 8. Observabilidad siempre activa
+
+- [ ] 8.1 Crear `ops/compose/docker-compose.obs.yml` **sin `profiles:`** con Prometheus, Grafana y Kafka UI, y `ops/compose/obs/prometheus.yml` con el *scrape* de `/actuator/prometheus` de los seis servicios por nombre DNS en `obs-net`; declarar `COMPOSE_FILE` (base + dev + obs) en `.env.example`. Verificación: `docker compose config --services` en la raíz lista `prometheus`, `grafana` y `kafka-ui` sin pasar ningún `-f` ni `--profile`.
+- [ ] 8.2 Verificar el arranque y el *scraping* con el comando canónico. Verificación: `docker compose up --wait` deja los tres contenedores `healthy` y `GET /api/v1/targets` de Prometheus devuelve los seis objetivos en estado `up`.
+- [ ] 8.3 Verificar la vía de escape documentada. Verificación: arrancando con `-f` solo base y dev (sin el fichero de observabilidad) no se crean contenedores de observabilidad y el resto del entorno queda `healthy`.
+
+## 9. Verificación integral y documentación
+
+- [ ] 9.1 Completar `PROJECT.md` §4 con las versiones verificadas y comprobar la coherencia de §3, §6 y §9, ya actualizadas con la carpeta `ops/`, la observabilidad siempre activa y la inclusión de `config/`, `scripts/`, `.env.example` y `.mvn/`. Verificación: revisión cruzada del árbol real contra la estructura documentada, sin discrepancias.
+- [ ] 9.2 Actualizar `README.md` con el estado real y sustituir los comandos marcados como «tras `project-skeleton`» por los comandos ya ejecutados, incluida la URL de Swagger UI de cada servicio. Verificación: cada comando del bloque «Arranque rápido» se ejecuta tal cual y termina con código 0.
+- [ ] 9.3 Ejecutar la suite completa: `./mvnw -B -ntp verify`, `npm ci && npm run lint && npm run build && npm test` en `apps/web-frontend`, `scripts/verify-environment.sh` y `scripts/verify-shutdown.sh`. Verificación: los cuatro comandos terminan con código 0 e informes de cobertura dentro del gate.
+
+## Workflow follow-up
+
+- Abrir el PR desde `feat/project-skeleton-bootstrap` referenciando el change `project-skeleton`.
+- Archivar el change con `openspec archive project-skeleton` tras la aprobación final del usuario, consolidando las cuatro specs en `openspec/specs/`.
+
+
