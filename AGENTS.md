@@ -20,7 +20,7 @@
 
 Actúa como **Senior FullStack Java Developer** con experiencia en:
 
-- **Java 21** y versiones anteriores; **Spring Boot** 3.x (y anteriores).
+- **Java 21** y versiones anteriores; **Spring Boot** 4.x, 3.x y anteriores.
 - **DevOps**: Docker, Docker Compose, **Jenkins**, Kaniko, Trivy, Syft.
 - Arquitectura de **microservicios**, **REST** y **mensajería con Kafka**.
 
@@ -97,16 +97,16 @@ Domincipe es una web **de recetas** para uso personal, con fines **educativos**:
 
 ---
 
-## 8. OpenSpec (verificado contra doc oficial, 1.17.0)
+## 8. OpenSpec (verificado contra doc oficial, 2.0.0)
 
-- **Paquete**: `@fission-ai/openspec@1.17.0` (MIT). **Requiere Node ≥ 22.12.0**.
+- **Paquete**: `@fission-ai/openspec@2.0.0` (MIT). **Requiere Node ≥ 22.12.0**.
 - **Instalación**: `npm install -g @fission-ai/openspec@latest` (alternativas: `curl -fsSL https://openspec.dev/cli/install.sh | sh`, `brew install openspec`).
-- **Init en el proyecto**: `openspec init --tools cline` (id de Cline = `cline`): genera las skills en `.cline/skills/openspec-*/SKILL.md` y los workflows en `.clinerules/workflows/opsx-*.md`. El contexto del proyecto (documentación en español) ya vive en `openspec/config.yaml`, así que no hace falta `--language` al añadir herramientas.
-- **Invocación**: escribiendo `/` en el chat de Cline (`/opsx-propose`, `/opsx-apply`, `/opsx-archive`, `/opsx-explore`). Cline lee `AGENTS.md` de forma nativa como regla de proyecto, así que este fichero se autocarga en cada tarea nueva.
-- **Regenerar**: `openspec update` refresca skills y workflows tras actualizar el CLI. Requiere reiniciar el IDE para que aparezcan los comandos.
-- **Estructura creada**: `openspec/config.yaml` (schema `spec-driven`), `openspec/specs/`, `openspec/changes/`, `openspec/changes/archive/`. **No** se crea `openspec/project.md` (legacy en esta versión).
+- **Init en el proyecto**: `openspec init --tools cline` (id de Cline = `cline`): instala las skills compartidas en `.agents/skills/openspec-*/SKILL.md`. El contexto del proyecto (documentación en español) ya vive en `openspec/config.yaml`, así que no hace falta `--language` al añadir herramientas.
+- **Invocación**: escribiendo `/` en el chat de Cline (`/openspec-propose`, `/openspec-apply`, `/openspec-archive`, `/openspec-explore`) o pidiéndoselo al agente. Desde la 2.0 no se generan slash commands `/opsx-*`: cada comando es una skill. Cline lee `AGENTS.md` de forma nativa como regla de proyecto, así que este fichero se autocarga en cada tarea nueva.
+- **Regenerar**: `openspec update` (previsualizable con `--dry-run`) refresca las skills y elimina los ficheros generados por versiones anteriores. Requiere reiniciar el IDE para que aparezcan.
+- **Estructura creada**: `openspec/config.yaml` (schema `spec-driven`), `openspec/specs/`, `openspec/changes/`, `openspec/changes/archive/` y `.agents/skills/`. **No** se crea `openspec/project.md` (legacy en esta versión).
 - **CLI útil**: `openspec list [--specs]`, `openspec show`, `openspec view`, `openspec validate`, `openspec archive`, `openspec status`, `openspec new`, `openspec update [--dry-run]`, `openspec config`.
-- **Workflows (slash commands)**: `explore`, `propose`, `apply`, `archive` (+ opcionales vía `openspec config profile`).
+- **Workflows disponibles**: `explore`, `propose`, `apply` y `archive` por defecto; `update`, `sync`, `verify`, `bulk-archive`, `new`, `continue`, `ff` y `onboard` se activan con `openspec config profile`.
 - **Telemetría**: activa por defecto (solo nombre de comando + versión). Opt-out: `openspec config set telemetry.enabled false`.
 - **AGENTS.md**: OpenSpec no lo crea ni lo edita. Este archivo es nuestra convención y prevalece.
 

@@ -2,9 +2,9 @@
 
 ## Context
 
-El repositorio no contiene todavía código: solo documentación, `openspec/` y la configuración de Cline (`.cline/`, `.clinerules/`), y `main` no tiene commits. Por tanto no hay restricciones de compatibilidad ni datos que migrar, y toda decisión de estructura se puede tomar sin deuda previa. Las restricciones que sí condicionan el diseño vienen de [PROJECT.md](../../../PROJECT.md): Java 21, Spring Boot 3.x, Maven multi-módulo con parent en la raíz, PostgreSQL 16 con un schema por servicio, Kafka 4.x en modo KRaft, MinIO y MailHog, entorno local cloud-like con healthchecks y límites, y gate de cobertura JaCoCo ≥80 % líneas / ≥70 % ramas. La motivación del change está en [proposal.md](../proposal.md); los requisitos, en [`specs/`](./specs/).
+El repositorio no contiene todavía código: solo documentación, `openspec/` y las skills de OpenSpec en `.agents/skills/`, y `main` no tiene commits. Por tanto no hay restricciones de compatibilidad ni datos que migrar, y toda decisión de estructura se puede tomar sin deuda previa. Las restricciones que sí condicionan el diseño vienen de [PROJECT.md](../../../PROJECT.md): Java 21, Spring Boot 4.x, Maven multi-módulo con parent en la raíz, PostgreSQL 16 con un schema por servicio, Kafka 4.x en modo KRaft, Versity S3 Gateway y Mailpit, entorno local cloud-like con healthchecks y límites, y gate de cobertura JaCoCo ≥80 % líneas / ≥70 % ramas. La motivación del change está en [proposal.md](../proposal.md); los requisitos, en [`specs/`](./specs/).
 
-Un condicionante adicional es la **Regla 0.2** de [AGENTS.md](../../../AGENTS.md): ninguna versión se escribe por memoria. Por eso el diseño fija *cómo* se elige cada versión, no un número concreto: la versión exacta de Spring Boot 3.x, de las imágenes base y de Kafka 4.x se verifica en la tarea 1.2 contra Maven Central y el registro de imágenes antes de fijarla en el POM.
+Un condicionante adicional es la **Regla 0.2** de [AGENTS.md](../../../AGENTS.md): ninguna versión se escribe por memoria. Por eso el diseño fija *cómo* se elige cada versión, no un número concreto: la versión exacta de Spring Boot 4.x, de springdoc-openapi, de las imágenes base y de Kafka 4.x se verifica en la tarea 1.2 contra Maven Central y el registro de imágenes antes de fijarla en el POM.
 
 ## Goals / Non-Goals
 
@@ -27,7 +27,7 @@ Un condicionante adicional es la **Regla 0.2** de [AGENTS.md](../../../AGENTS.md
 
 ### D1. El parent POM hereda de `spring-boot-starter-parent`
 
-La raíz contiene un único `pom.xml` que actúa a la vez como agregador y como parent de todos los módulos, heredando de `spring-boot-starter-parent` con la versión fijada en una property.
+La raíz contiene un único `pom.xml` que actúa a la vez como agregador y como parent de todos los módulos, heredando de `spring-boot-starter-parent` con la versión fijada en una property. La versión elegida tras la verificación de la tarea 1.2 es **4.1.2** (ver *Open Questions*).
 
 *Alternativas consideradas:* importar solo `spring-boot-dependencies` como BOM. Se descarta porque obliga a configurar a mano *surefire*, *failsafe*, *jacoco*, *checkstyle* y el filtrado de recursos en cada módulo; heredar del starter-parent aporta esos valores por defecto y concentra la política de build en un solo fichero.
 
@@ -79,7 +79,7 @@ La librería aporta una auto-configuración de Spring Boot registrada en `META-I
 
 `docker-compose.base.yml` define servicios, healthchecks, redes y límites; `docker-compose.dev.yml` añade puertos publicados, volúmenes de datos y el servidor de desarrollo del frontend; `docker-compose.obs.yml` añade la pila de observabilidad y queda incluido en el arranque por defecto a través de `COMPOSE_FILE` declarado en `.env`. El proyecto se nombra `domincipe` para que los contenedores y la red tengan nombres estables que los scripts de verificación puedan resolver.
 
-El aprovisionamiento (schemas, topics, bucket) se hace con contenedores de inicialización de vida corta (`restart: "no"`) y ejecución idempotente: `CREATE SCHEMA IF NOT EXISTS` para PostgreSQL, `kafka-topics --create --if-not-exists` para Kafka y `mc mb --ignore-existing` para MinIO. Los servicios que los necesitan los declaran con `depends_on: condition: service_completed_successfully`; los que dependen de un proceso de larga vida usan `condition: service_healthy`.
+El aprovisionamiento (schemas, topics, bucket) se hace con contenedores de inicialización de vida corta (`restart: "no"`) y ejecución idempotente: `CREATE SCHEMA IF NOT EXISTS` para PostgreSQL, `kafka-topics --create --if-not-exists` para Kafka y `aws --endpoint-url http://versity:7070 s3api create-bucket` con comprobación previa (`head-bucket`) para Versity. Los servicios que los necesitan los declaran con `depends_on: condition: service_completed_successfully`; los que dependen de un proceso de larga vida usan `condition: service_healthy`.
 
 *Por qué:* los contenedores de inicialización hacen el aprovisionamiento observable y repetible, y evitan meter lógica de arranque en las imágenes de los servicios. *Alternativa:* un script de arranque en el host; se descarta porque introduciría pasos manuales y rompería el «un solo comando».
 
@@ -99,13 +99,13 @@ El etiquetado `latest` + SHA de git lo hace `scripts/build-images.sh`, que const
 
 ### D12. Los servicios no se conectan a datos en este change
 
-Ningún servicio declara `spring-boot-starter-data-jpa`, `flyway-core` ni un `DataSource`. PostgreSQL, Kafka, MinIO y MailHog se aprovisionan en el entorno y se verifican contra el propio entorno (schemas, topics, bucket, SMTP), no contra los servicios.
+Ningún servicio declara `spring-boot-starter-data-jpa`, `flyway-core` ni un `DataSource`. PostgreSQL, Kafka, Versity S3 Gateway y Mailpit se aprovisionan en el entorno y se verifican contra el propio entorno (schemas, topics, bucket, SMTP), no contra los servicios.
 
 *Por qué:* así el esqueleto se puede validar sin inventar modelos de dominio y cada servicio añade su persistencia, con sus migraciones, en el change que la necesita. *Consecuencia:* el gate de cobertura se ejercita en `libs/common-observability` (código real) y en los tests de los servicios, no en capas de datos todavía inexistentes.
 
 ### D13. Frontend: Vite + TypeScript estricto y fail-fast de configuración
 
-Vite con `react-ts`, `strict: true` en `tsconfig.json`, ESLint 9 con configuración plana y `typescript-eslint`, Vitest + Testing Library con cobertura. La URL del API se valida en `vite.config.ts` (de modo que `npm run build` falla si `VITE_API_BASE_URL` no está definida) y se consume en `src/config/env.ts` como única fuente. El arranque monta `createBrowserRouter` (React Router v7) y un `QueryClientProvider` (TanStack Query) sobre un layout con estado vacío explícito.
+Vite 8 con `react-ts`, TypeScript 5.9.3 y `strict: true` en `tsconfig.json`, ESLint 10 con configuración plana y `typescript-eslint` 8, Vitest 5 + Testing Library con cobertura. La URL del API se valida en `vite.config.ts` (de modo que `npm run build` falla si `VITE_API_BASE_URL` no está definida) y se consume en `src/config/env.ts` como única fuente. El arranque monta `createBrowserRouter` (React Router 8) y un `QueryClientProvider` (TanStack Query 5) sobre un layout con estado vacío explícito.
 
 *Por qué validar en `vite.config.ts`:* es el único punto que se ejecuta tanto en `dev` como en `build`, así que el fallo aparece antes de empaquetar y no en tiempo de ejecución en el navegador. *Alternativa:* fallar solo en `src/config/env.ts`; se descarta porque `npm run build` terminaría con código 0 generando un bundle inservible.
 
@@ -126,11 +126,11 @@ Vite con `react-ts`, `strict: true` en `tsconfig.json`, ESLint 9 con configuraci
 
 Al aplicar el change se actualizan `PROJECT.md` §3 (alcance real de la pila de observabilidad), §4 (versiones verificadas), §6 (nuevos `config/`, `scripts/`, `.env.example` y `.mvn/`) y §9 (`COMPOSE_FILE` y arranque por defecto con observabilidad), y `README.md` (estado del proyecto y comandos ya ejecutados). Sin esta actualización, la fuente de verdad quedaría desalineada con el repositorio en el mismo commit que lo crea.
 
-### D16. Documentación OpenAPI con springdoc-openapi 2.x
+### D16. Documentación OpenAPI con springdoc-openapi 3.x
 
 Cada servicio añade `springdoc-openapi-starter-webmvc-ui`, que expone la especificación generada desde el código en `/v3/api-docs` (y `/v3/api-docs.yaml`) y Swagger UI en `/swagger-ui.html`, sin configuración adicional. El título y la versión del documento se alimentan del nombre y la versión del módulo, para que la documentación identifique el servicio que la publica.
 
-**Compatibilidad verificada**, no supuesta: la tabla oficial del repositorio de springdoc indica Spring Boot 4.x → springdoc **3.x** y Spring Boot 3.x → springdoc **2.x**; en Maven Central (`repo1.maven.org/maven2/org/springdoc/springdoc-openapi-starter-webmvc-ui/maven-metadata.xml`) la última publicada de la línea 2.x es **2.10.0** (existe ya la 3.2.0, que **no** aplica aquí porque exige Spring Boot 4). La versión exacta se confirma junto al resto en la tarea 1.2.
+**Compatibilidad verificada**, no supuesta: la tabla oficial del repositorio de springdoc indica Spring Boot 4.x → springdoc **3.x** y Spring Boot 3.x → springdoc **2.x**; en Maven Central (`repo1.maven.org/maven2/org/springdoc/springdoc-openapi-starter-webmvc-ui/maven-metadata.xml`) la última publicada de la línea 3.x es **3.2.0**, cuyo POM hereda de `spring-boot-starter-parent` **4.1.2**, exactamente la versión elegida para el proyecto. Queda descartada la línea 2.x (última **2.10.0**, construida sobre Spring Boot 3.5.16, fuera de soporte OSS desde el 2026-06-30). La versión exacta se confirma junto al resto en la tarea 1.2.
 
 Desactivación: `springdoc.api-docs.enabled` y `springdoc.swagger-ui.enabled` se alimentan de una única variable de entorno `APP_DOCS_ENABLED` (por defecto `true`), de modo que apagar la documentación no exige tocar código ni la imagen.
 
@@ -142,6 +142,12 @@ Los Dockerfiles, los ficheros de Compose y el pipeline de Jenkins viven bajo **`
 
 *Alternativas evaluadas:* `platform/` (sugiere un equipo o una plataforma interna, demasiado grandilocuente para un proyecto personal), `deploy/` (sugiere despliegue, pero la carpeta también contiene la definición de imágenes y el entorno local), `devops/` (más largo y menos concreto) y `docker/` (no cubriría `jenkins/`). El cambio afecta a `PROJECT.md` §6 y §9, `README.md`, `.gitignore` y a los artefactos de este change; se hace ahora, antes de que exista ningún fichero con esa ruta, para no arrastrar un renombrado con historial detrás.
 
+### D18. Almacenamiento de objetos: Versity S3 Gateway en lugar de MinIO
+
+MinIO se descarta porque sus imágenes oficiales ya no se publican: `minio/minio` responde 404 en Docker Hub, `quay.io/minio/minio` y `ghcr.io/minio/minio` no ofrecen manifiesto anónimo, y el último release upstream es RELEASE.2025-10-15 (oct-2025). Se adopta **Versity S3 Gateway v1.11.0** (`versity/versitygw:v1.11.0`, Apache-2.0, digest `sha256:8319a530…`), que traduce el protocolo S3 a un backend POSIX: un solo contenedor, datos en un volumen y credenciales por `ROOT_ACCESS_KEY`/`ROOT_SECRET_KEY`.
+
+*Verificado el 2026-11-12*: la imagen arranca en el puerto **7070** y responde **403** a las peticiones sin firmar; no expone `/health` ni `/metrics` por defecto, así que el healthcheck de Compose se define sobre esa respuesta y el aprovisionamiento del bucket pasa de `mc mb` a `aws s3api`. *Consecuencia:* las presigned URLs, que `media-service` necesita, deben validarse explícitamente en la tarea 7.x.
+
 ## Risks / Trade-offs
 
 - **Deriva de versiones** (Spring Boot, imágenes base, Kafka) → se fija cada versión en una única property tras verificarla contra Maven Central y el registro de imágenes (tarea 1.2); ninguna versión se escribe por memoria.
@@ -151,6 +157,7 @@ Los Dockerfiles, los ficheros de Compose y el pipeline de Jenkins viven bajo **`
 - **Testcontainers descarga imágenes pesadas en cada ejecución limpia** → reutilización local opcional documentada; la CI siempre parte de estado limpio para no ocultar dependencias del entorno.
 - **`npm ci` ignora `engines` por defecto** → `.npmrc` con `engine-strict=true`, que es lo que convierte el requisito de Node ≥ 22.12.0 en un fallo real de instalación.
 - **`frontend-net` interna rompería el `npm install` en contenedor** → el frontend no instala dependencias dentro de Compose: la imagen se construye en la fase de build y el servidor de desarrollo solo resuelve el `api-gateway`.
+- **Presigned URLs en Versity** → la compatibilidad S3 no garantiza todas las variantes de firma; se valida con una subida y una descarga presignadas en la tarea 7.x y, si falla alguna variante, se documenta el límite antes de escribir `media-service`.
 
 ## Migration Plan
 
@@ -163,8 +170,9 @@ No hay migración de datos ni compatibilidad que preservar: el repositorio no ti
 
 ## Open Questions
 
-- **Versión exacta de Spring Boot 3.x, de las imágenes base y de Kafka 4.x**: se resuelve en la tarea 1.2 contra los repositorios oficiales. No cambia specs, enfoque ni desglose de tareas, así que puede cerrarse durante la aplicación.
-- **Remitente por defecto de MailHog** (`MAIL_FROM`): se elige un placeholder en `.env.example`; no afecta a ningún requisito de este change.
+- **Cerrada en la tarea 1.2 (2026-11-12)**: Spring Boot **4.1.2**, springdoc-openapi **3.2.0**, `apache/kafka:4.4.0` y `versity/versitygw:v1.11.0`, verificados en Maven Central, la documentación de springdoc, Docker Hub y el arranque real de la imagen S3. Se descartó Spring Boot 3.5.16 (última de la línea 3.x) por estar fuera de soporte OSS desde el 2026-06-30, y con ella springdoc 2.10.0; MinIO se descartó porque ya no publica imágenes oficiales. El cambio obligó a actualizar este design, `proposal.md`, `tasks.md`, `PROJECT.md` §4 y `AGENTS.md`. Sigue abierta la versión exacta de las imágenes base, que se fija en la tarea 7.1.
+- **Toolchain del frontend (2026-11-12)**: React 19.3.1, Vite 8.3.8, TypeScript 5.9.3, ESLint 10.14.0 con `typescript-eslint` 8.72.2, Tailwind 4.3.5, React Router 8.5.1, TanStack Query 5.107.1, Vitest 5.1.0 y Node ≥ 22.22.0. TypeScript 7.0.2 queda descartado porque `typescript-eslint` 8.72.2 solo admite `<6.1.0`.
+- **Remitente por defecto de Mailpit** (`MAIL_FROM`): se elige un placeholder en `.env.example`; no afecta a ningún requisito de este change.
 
 
 

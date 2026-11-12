@@ -36,7 +36,7 @@ El entorno SHALL separar el tráfico en las redes `frontend-net`, `backend-net` 
 
 ### Requirement: Aprovisionamiento idempotente de datos
 
-El entorno SHALL crear, sin intervención manual y de forma repetible, un schema de PostgreSQL 16 por servicio (`auth`, `users`, `recipes`, `media`, `notifications`), los topics de Kafka 4.x definidos en el contrato de eventos, el bucket de MinIO y el buzón SMTP de MailHog.
+El entorno SHALL crear, sin intervención manual y de forma repetible, un schema de PostgreSQL 16 por servicio (`auth`, `users`, `recipes`, `media`, `notifications`), los topics de Kafka 4.x definidos en el contrato de eventos, el bucket de Versity S3 Gateway y el buzón SMTP de Mailpit.
 
 #### Scenario: Schemas creados
 

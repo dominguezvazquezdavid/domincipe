@@ -30,12 +30,12 @@ Ningún artefacto de código se genera sin que su change de OpenSpec esté aprob
 
 | Herramienta | Versión mínima | Uso |
 |---|---|---|
-| JDK | 21 (LTS) | Backend Spring Boot |
-| Maven | 3.9+ (vía wrapper `./mvnw` cuando exista) | Build multi-módulo |
-| Node.js | ≥ 22.12.0 | Frontend y CLI de OpenSpec |
+| JDK | 21.0.13+9 (Temurin LTS) | Backend Spring Boot |
+| Maven | 3.9.16 (vía wrapper `./mvnw` cuando exista) | Build multi-módulo |
+| Node.js | ≥ 22.22.0 | Frontend y CLI de OpenSpec (React Router 8.5 lo exige) |
 | npm | 10+ | Dependencias del frontend y del CLI |
 | Docker + Docker Compose v2 | última estable | Entorno local completo |
-| `openspec` CLI | 1.17.0 | Flujo SDD (`@fission-ai/openspec`) |
+| `openspec` CLI | 2.0.0 | Flujo SDD (`@fission-ai/openspec`) |
 
 Instalación del CLI de OpenSpec:
 
@@ -100,8 +100,7 @@ Se puede desactivar con `APP_DOCS_ENABLED=false`, sin tocar código ni reconstru
 ├── .editorconfig          # UTF-8, LF e indentación por tipo de fichero
 ├── .mvn/                  # Maven Wrapper (versión de Maven fijada)
 ├── openspec/              # SDD: config, specs as-built y changes
-├── .cline/                # skills de OpenSpec para Cline
-├── .clinerules/           # workflows de OpenSpec para Cline
+├── .agents/skills/        # skills de OpenSpec 2.0 (compartidas)
 ├── config/                # configuración de lint (Checkstyle) compartida
 ├── scripts/               # verificaciones del esqueleto (módulos, imágenes, entorno)
 ├── apps/
@@ -141,7 +140,7 @@ openspec validate --strict    # validación estricta de los artefactos
 openspec status --change <id> # progreso de los artefactos y tareas
 ```
 
-En Cline los workflows se invocan escribiendo `/` en el chat (`/opsx-propose`, `/opsx-apply`, `/opsx-archive`, `/opsx-explore`), servidos por las skills de `.cline/skills/`.
+En Cline las skills se invocan escribiendo `/` en el chat (`/openspec-propose`, `/openspec-apply`, `/openspec-archive`, `/openspec-explore`); desde OpenSpec 2.0 viven en `.agents/skills/` y ya no se generan los slash commands `/opsx-*`.
 
 ---
 

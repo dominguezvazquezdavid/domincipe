@@ -16,7 +16,7 @@
 
 ## 2. Metodología: SDD + OpenSpec
 
-Trabajamos con **Spec-Driven Development (SDD)** orquestado por **OpenSpec** (`@fission-ai/openspec`, versión **1.17.0**, binario `openspec`, licencia MIT, repositorio `Fission-AI/OpenSpec`).
+Trabajamos con **Spec-Driven Development (SDD)** orquestado por **OpenSpec** (`@fission-ai/openspec`, versión **2.0.0**, binario `openspec`, licencia MIT, repositorio `Fission-AI/OpenSpec`).
 
 - La **spec es el contrato**: primero se escribe, se revisa y se aprueba; después se implementa.
 - Cada cambio vive en `openspec/changes/<id>/` con:
@@ -24,7 +24,7 @@ Trabajamos con **Spec-Driven Development (SDD)** orquestado por **OpenSpec** (`@
   - `specs/` → requirements y scenarios (`## ADDED Requirements`, `#### Scenario:`).
   - `design.md` → cómo se hará (decisiones técnicas).
   - `tasks.md` → checklist ejecutable.
-- El ciclo se opera con los *workflows* de OpenSpec: `explore`, `propose`, `apply`, `archive` (y opcionales `update`, `sync`, `verify`, `bulk-archive`). Invocación: en Cline se escriben como `/opsx-apply`, desde las skills de `.cline/skills/`.
+- El ciclo se opera con las *skills* de OpenSpec: `explore`, `propose`, `apply`, `archive` (y opcionales `update`, `sync`, `verify`, `bulk-archive`, que se añaden con `openspec config profile`). Desde la 2.0 las skills viven en `.agents/skills/` y no hay slash commands: en Cline se invocan como `/openspec-apply` o pidiéndoselo al agente.
 - Al cerrarse, el change se mueve a `openspec/changes/archive/<fecha>-<change>/` y la spec "as-built" se consolida en `openspec/specs/`.
 - La configuración del proyecto (contexto para la IA + schema) vive en **`openspec/config.yaml`** con schema `spec-driven`. **No** usamos `openspec/project.md`: es un formato legacy en esta versión (el `init` no lo crea y propone migrarlo a `config.yaml`).
 - **Nada se implementa sin un change aprobado por el usuario.**
@@ -42,11 +42,11 @@ web-frontend (React) ──► api-gateway ──┬─► auth-service
 
 Persistencia:
   - PostgreSQL 16 (database-per-service)
-  - MinIO (S3-compatible, imágenes de recetas)
-  - MailHog (SMTP fake para email)
+  - Versity S3 Gateway (S3-compatible sobre POSIX, imágenes de recetas)
+  - Mailpit (SMTP fake para email, con UI web y API)
 
 Observabilidad (siempre activa en local):
-  - Prometheus + Grafana + Kafka UI
+  - Prometheus + Grafana + Kafka UI (imagen `kafbat/kafka-ui`)
   - Loki + Tempo (pendiente, ver roadmap §10)
 ```
 
@@ -54,29 +54,36 @@ Observabilidad (siempre activa en local):
 
 | Capa | Tecnología | Versión | Notas |
 |---|---|---|---|
-| Lenguaje backend | Java | 21 LTS | records, pattern matching, virtual threads |
-| Framework | Spring Boot | 3.x | última estable |
-| Build | Maven | multi-módulo | parent POM en raíz |
+| Lenguaje backend | Java | 21.0.13+9 (Temurin LTS) | records, pattern matching, virtual threads |
+| Framework | Spring Boot | 4.1.2 | línea 4.x, soportada hasta 2027-07-31; Java 21 |
+| Build | Maven | 3.9.16 (wrapper) | multi-módulo; parent POM en raíz |
 | Migraciones | Flyway | última | por servicio |
 | Persistencia | PostgreSQL | 16 | un schema por servicio, escalable a DB separada |
-| Mensajería | Apache Kafka | 4.x KRaft | sin ZooKeeper |
-| Almacenamiento de objetos | MinIO | última | S3-compatible |
-| Email fake | MailHog | última | captura SMTP |
+| Mensajería | Apache Kafka | 4.4.0 KRaft | imagen oficial `apache/kafka:4.4.0`; sin ZooKeeper |
+| Almacenamiento de objetos | Versity S3 Gateway | 1.11.0 | S3 sobre POSIX; puerto 7070 |
+| Email fake | Mailpit | 1.33.1 | SMTP en 1025, UI/API en 8025 |
 | Seguridad | Spring Security + JWT | propio | BCrypt + refresh token |
-| Documentación API | springdoc-openapi | OpenAPI 3.1 | por servicio |
+| Documentación API | springdoc-openapi | 3.2.0 (OpenAPI 3.1) | línea 3.x para Spring Boot 4.x; por servicio |
 | Testing backend | JUnit 5, Mockito, AssertJ, Testcontainers, RestAssured | — | ver §8 |
 | Cobertura | JaCoCo | — | gate (ver §8) |
-| Frontend | React 19 + TypeScript | 19.x | — |
-| Bundler | Vite | última | — |
-| Estado servidor | TanStack Query | última | — |
-| Estilos | Tailwind CSS + shadcn/ui | última | — |
-| Router | React Router | v7 | — |
-| Testing frontend | Vitest + RTL + Playwright | — | — |
+| Frontend | React 19 + TypeScript | 19.3.1 / 5.9.3 | TypeScript 5.9.3: la 7.x aún no la soporta `typescript-eslint` 8 |
+| Bundler | Vite | 8.3.8 | `@vitejs/plugin-react` 6.3.0 |
+| Estado servidor | TanStack Query | 5.107.1 | — |
+| Estilos | Tailwind CSS + shadcn/ui | 4.3.5 / CLI 4.23.0 | — |
+| Router | React Router | 8.5.1 | exige React ≥ 19.2.7 y Node ≥ 22.22.0 |
+| Testing frontend | Vitest + RTL + Playwright | 5.1.0 / 16.3.3 / 1.65.0 | cobertura con `@vitest/coverage-v8` |
+| Lint frontend | ESLint + `typescript-eslint` | 10.14.0 / 8.72.2 | configuración plana |
 | CI/CD | Jenkins | LTS | corre en Docker |
 | Imágenes | Kaniko | — | sin Docker-in-Docker |
 | SBOM / escaneo | Syft + Trivy | — | rompe build si HIGH/CRITICAL |
 | Observabilidad | Micrometer + Prometheus + Grafana + Loki + Tempo | — | — |
-| SDD | OpenSpec (`@fission-ai/openspec`) | 1.17.0 | requiere **Node ≥ 22.12.0**; tool id `cline` |
+| SDD | OpenSpec (`@fission-ai/openspec`) | 2.0.0 | skills en `.agents/skills/`; requiere **Node ≥ 22.12.0**, el proyecto fija 22.22.0 |
+
+Versiones verificadas en la tarea 1.2 (2026-11-12) contra Maven Central y Docker Hub: Spring Boot **4.1.2**, springdoc-openapi **3.2.0** y `apache/kafka:4.4.0`. Se descarta la línea 3.5 (última 3.5.16) por estar fuera de soporte OSS desde el 2026-06-30; springdoc 2.x (última 2.10.0) solo aplica a Spring Boot 3.x.
+
+Versiones del frontend verificadas el 2026-11-12 en el registro de npm: React **19.3.1**, Vite **8.3.8**, TypeScript **5.9.3**, ESLint **10.14.0**, `typescript-eslint` **8.72.2**, Tailwind **4.3.5**, React Router **8.5.1**, TanStack Query **5.107.1** y Vitest **5.1.0**. TypeScript no se fija en la 7.0.2 porque `typescript-eslint` 8.72.2 declara `typescript >=4.8.4 <6.1.0`; React Router 8.5.1 eleva el mínimo de Node a **22.22.0**.
+
+Almacenamiento de objetos: **Versity S3 Gateway 1.11.0** (`versity/versitygw:v1.11.0`, digest `sha256:8319a530…`) verificado el 2026-11-12; MinIO se descarta porque sus imágenes oficiales ya no se publican (Docker Hub 404, Quay y ghcr sin manifiesto) y su último release upstream es de octubre de 2025. Toolchain local: Temurin **21.0.13+9** y Maven **3.9.16**.
 
 ## 5. Bounded contexts (servicios y responsabilidades)
 
@@ -86,8 +93,8 @@ Observabilidad (siempre activa en local):
 | `auth-service` | Login, emisión/renovación de JWT, roles | `auth` schema | — |
 | `user-service` | Perfil, preferencias, dietas, alérgenos | `users` schema | produce `user.registered`, `user.updated` |
 | `recipe-service` | CRUD recetas, ingredientes, pasos, tags, búsqueda FTS | `recipes` schema | produce `recipe.created/updated/deleted`; consume `media.uploaded` |
-| `media-service` | Subida de imágenes, presigned URLs, borrado | `media` schema + MinIO | produce `media.uploaded`; consume `recipe.deleted` |
-| `notification-service` | Feed de actividad + email (MailHog) | `notifications` schema | consume todos los anteriores |
+| `media-service` | Subida de imágenes, presigned URLs, borrado | `media` schema + Versity | produce `media.uploaded`; consume `recipe.deleted` |
+| `notification-service` | Feed de actividad + email (Mailpit) | `notifications` schema | consume todos los anteriores |
 
 **Contrato de eventos**: se formalizará en `openspec/specs/events/spec.md` cuando exista.
 
@@ -108,10 +115,8 @@ Observabilidad (siempre activa en local):
 │   ├── specs/           # specs as-built
 │   └── changes/         # changes pendientes
 │       └── archive/     # changes cerrados + specs consolidadas
-├── .cline/              # skills de OpenSpec para Cline
+├── .agents/             # skills de OpenSpec 2.0 (compartidas por todas las herramientas)
 │   └── skills/
-├── .clinerules/         # workflows de OpenSpec para Cline
-│   └── workflows/
 ├── config/              # configuración compartida de lint (Checkstyle)
 ├── scripts/             # verificaciones del esqueleto (módulos, imágenes, entorno)
 ├── apps/
@@ -211,6 +216,6 @@ El comando canónico es `docker compose up --wait` desde la raíz: `.env` declar
 - **JaCoCo**: herramienta de medición de cobertura de tests en Java.
 - **Gate de cobertura**: umbral mínimo que, de no cumplirse, hace fallar el build.
 - **Testcontainers**: lanza contenedores reales (Postgres, Kafka) para tests de integración.
-- **Presigned URL**: URL temporal firmada para subir/descargar de S3/MinIO sin exponer credenciales.
+- **Presigned URL**: URL temporal firmada para subir/descargar de S3/Versity sin exponer credenciales.
 - **SBOM**: Software Bill of Materials (inventario de dependencias).
 - **BFF**: Backend For Frontend (el `api-gateway` aquí).
