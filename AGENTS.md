@@ -3,6 +3,8 @@
 > Instrucciones para agentes de IA (Cline, Cursor, Claude Code, Codex, etc.).
 > Convención: [agents.md](https://agents.md). **Corto por diseño** — el detalle vive en [PROJECT.md](./PROJECT.md).
 > Orden de lectura: `AGENTS.md` → `STATUS.md` (foto fechada del estado) → `PROJECT.md` → `openspec/` → `README.md`.
+>
+> **Reparto de responsabilidades:** aquí solo va **contexto para el agente** (cómo trabajar, qué está prohibido, qué herramientas hay). Todo lo que describe **el proyecto** —visión, metodología, arquitectura, stack, estructura, convenciones, testing y entornos— vive en [`PROJECT.md`](./PROJECT.md), que es la fuente de verdad. Si un tema aparece en los dos sitios, el error es de este fichero: se corrige en `PROJECT.md` y aquí queda el enlace.
 
 ---
 
@@ -12,7 +14,7 @@
 
 1. **El usuario manda.** Ningún cambio, archivo, comando, commit, push ni instalación se ejecuta sin su **validación explícita**. El agente propone; el usuario aprueba. Ante la duda, **pregunta, no actúes**.
 2. **No inventar.** Si una versión, un comando, un flag, una API o un comportamiento no se conoce con certeza, **se investiga** (doc oficial, `--help`, web) **antes** de afirmarlo o usarlo. Nunca se usa el entrenamiento como sustituto de la realidad verificable. Si no se puede verificar, se dice abiertamente.
-3. **Toda implementación lleva su batería de tests.** Ninguna se da por válida si la **suite COMPLETA** (antigua + nueva) no pasa en verde.
+3. **Toda implementación lleva su batería de tests y se ejecuta antes de darla por válida.** No se afirma «está en verde» sin haber visto la salida del comando. El alcance de la suite y el gate son del proyecto: [PROJECT.md §8](./PROJECT.md).
 
 ---
 
@@ -28,49 +30,42 @@ Trabajas **a la par** con el usuario. Tu valor es la propuesta técnica rigurosa
 
 ---
 
-## 2. Contexto del proyecto
+## 2. Entorno de trabajo
 
-Domincipe es una web **de recetas** para uso personal, con fines **educativos**: practicar microservicios con rigor de producción. **Sin pagos.**
+Lo único del proyecto que necesitas saber de memoria para operar; el resto se lee en [`PROJECT.md`](./PROJECT.md):
 
-- Stack, arquitectura, bounded contexts, testing y convenciones: **[PROJECT.md](./PROJECT.md)** (fuente de verdad).
-- Metodología **SDD + OpenSpec**: cada cambio se especifica antes de implementar. Los changes viven en `openspec/changes/`.
-- Repositorio: `https://github.com/dominguezvazquezdavid/domincipe` (público, **SSH**).
-- Raíz local del proyecto: `./workspace/domincipe/` (ruta absoluta: `/home/domin/workspace/domincipe/`).
-
----
-
-## 3. Cómo trabajar (flujo SDD con OpenSpec)
-
-1. **Se propone** un change de OpenSpec (`openspec/changes/<id>/`: `proposal.md` + `specs/` + `design.md` + `tasks.md`).
-2. **El usuario valida** el change. Sin OK, no se implementa nada.
-3. **Se implementa** en una rama `feat/<change-id>-<slug>`.
-4. **Se prueba**: la **suite completa** (antigua + nueva) debe pasar en verde.
-5. **Se archiva** el change (`openspec archive`) tras aprobación final del usuario; las specs se consolidan en `openspec/specs/`.
+- **Raíz del repositorio**: `./workspace/domincipe/` ≡ `/home/domin/workspace/domincipe/`. Son **la misma ruta**, no dos filesystems: cualquiera sirve como prefijo, pero **no se afirma una ruta sin comprobarla** (`ls`, `git`, el editor — Regla 0.2).
+- **Remoto**: `git@github.com:dominguezvazquezdavid/domincipe.git` (SSH). La clave `~/.ssh/id_ed25519` tiene *passphrase*: sin `ssh-agent` cargado, cualquier `push` falla con `Permission denied (publickey)`. No es un fallo del repo.
+- **Qué es Domincipe, su stack, su arquitectura y sus convenciones**: [`PROJECT.md`](./PROJECT.md). No se duplican aquí.
 
 ---
 
-## 4. Reglas de testing (Definition of Done)
+## 3. Flujo de trabajo por change (gate obligatorio)
 
-- **Ninguna implementación se da por válida** si la **suite COMPLETA** de tests no pasa: unit + slice + integration + contract + e2e + lint. No solo los tests nuevos: **también los antiguos** (regresión bloqueante).
-- **Nunca** `-DskipTests` en CI. En local, solo puntualmente y avisándolo.
-- **Coverage gate (JaCoCo)**: ≥ 80% líneas / ≥ 70% ramas por módulo. Si baja, el build falla.
-- Solo los tests `e2e` pueden reintentarse **1 vez** por flakiness. Unit e integration no se reintentan.
-- Detalle de la pirámide y herramientas: **[PROJECT.md §8](./PROJECT.md)**.
+1. **Propones** el change de OpenSpec. Su anatomía y su ciclo de vida son metodología del proyecto: [PROJECT.md §2](./PROJECT.md).
+2. **Esperas la validación explícita del usuario.** Sin OK no se escribe una línea de implementación.
+3. **Implementas en la rama del change**, cuyo nombre fija `PROJECT.md` §7.
+4. **Ejecutas la suite completa** y enseñas la salida. Sin verde no hay paso siguiente.
+5. **Archivas** el change solo tras la aprobación final del usuario.
+
+Este orden no se invierte: no se implementa primero «y luego se especifica», y no se archiva con tareas pendientes para dejar el árbol limpio.
+
+---
+
+## 4. Calidad: lo que te toca a ti
+
+- **Ejecutar antes de afirmar.** «Compila», «pasa» o «está cubierto» se dicen con la salida del comando delante, no por lo que debería ocurrir.
+- **Sin atajos que maquillen el rojo**: ni `-DskipTests`, ni excluir tests del reactor, ni bajar umbrales, ni `@Disabled` para salir del paso.
+- **Lo nuevo no rompe lo viejo**: la regresión se comprueba, no se supone.
+- El alcance de la suite (unit, slice, integration, contract, e2e y lint), la pirámide, el gate de cobertura y sus exclusiones son del proyecto: [PROJECT.md §8](./PROJECT.md). Se aplican tal cual, sin reinterpretarlos.
 
 ---
 
 ## 5. Convenciones
 
-- **Código en inglés; documentación en español.** La frontera la marca el **tipo de fichero**, no quién lo lea ni lo pequeño que sea:
-  - **Ficheros de código y de configuración/build → inglés, comentarios incluidos.** Afecta a identificadores, mensajes de log y de excepción, y a cualquier comentario. Ejemplos: `*.java`, `*.ts`, `*.tsx`, `*.css`, `pom.xml`, `config/checkstyle/*.xml`, `.editorconfig`, `.gitignore`, `.gitattributes`, `Dockerfile`, los `docker-compose*.yml`, `scripts/*.sh` y las anotaciones de configuración de herramientas.
-  - **Ficheros de documentación → español.** Ejemplos: `README.md`, `PROJECT.md`, `AGENTS.md`, `STATUS.md`, todo `openspec/**` (`proposal.md`, `design.md`, `tasks.md`, `specs/`, `config.yaml`) y las descripciones de PR o issue.
-  - No hay excepciones del tipo «es un fichero pequeño» o «solo lo lee el agente»: si es código o configuración, va en inglés.
-- Los **comentarios explican el *por qué*, no el *qué***, en el idioma que corresponda al fichero según la regla anterior.
-- **Commits SIEMPRE en inglés** (asunto y cuerpo), con **Conventional Commits**: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`. Ni el asunto ni el cuerpo se escriben en español, aunque la documentación del proyecto sí lo esté.
-- **Ramas**: `main` (estable), `feat/<change-id>-<slug>`, `fix/<slug>`.
-- **Package base**: `com.domincipe.<servicio>`.
-- **Configuración**: 100% por variables de entorno. `.env.example` versionado; `.env` ignorado.
-- **Rutas del proyecto**: la raíz del repositorio es `./workspace/domincipe/`, cuya ruta absoluta equivalente es `/home/domin/workspace/domincipe/`. Son **la misma ruta**, no dos filesystems distintos: cualquiera de las dos vale como prefijo al referenciar ficheros. Verificar con `ls`, `git` o el editor está **permitido y recomendado** (Regla 0.2); lo que no se hace es **afirmar** una ruta sin comprobarla.
+Son **del proyecto**, no del agente: idioma de código y documentación, comentarios, Conventional Commits, ramas, `package` base y configuración por variables de entorno están en [PROJECT.md §7](./PROJECT.md) y son de obligado cumplimiento.
+
+Este fichero no las repite a propósito: cuando cambien, se cambia **un solo sitio**.
 
 ---
 
@@ -87,29 +82,27 @@ Domincipe es una web **de recetas** para uso personal, con fines **educativos**:
 ## 7. Do / Don't
 
 **Do**
-- Proponer, explicar el *por qué*, esperar validación.
-- Investigar antes de afirmar versiones, comandos o comportamientos.
-- Escribir tests junto con la implementación.
-- Referenciar `PROJECT.md` en lugar de duplicar detalle.
+- Proponer, explicar el *por qué* y esperar validación.
+- Investigar antes de afirmar una versión, un flag, un comando o un comportamiento.
+- Ejecutar antes de informar y enseñar la evidencia (comando + salida).
+- Enlazar `PROJECT.md` en lugar de repetir su contenido.
 
 **Don't**
-- Ejecutar cambios, instalaciones, commits o push sin OK explícito.
-- Inventar flags, APIs, versiones o comportamientos.
-- Duplicar en este archivo lo que ya vive en `PROJECT.md`.
-- Escribir mensajes de commit en español (o sin `Conventional Commits`): siempre en inglés.
-- Escribir en español cualquier cosa dentro de un fichero de código o de configuración: identificadores, mensajes y **comentarios** van en inglés.
-- Cerrar un change con tests en rojo o cobertura por debajo del gate.
+- Ejecutar cambios, instalaciones, commits, push o borrados sin OK explícito.
+- Inventar APIs, flags, versiones o resultados.
+- Copiar en este fichero lo que ya vive en `PROJECT.md`.
+- Dar por terminada una tarea con la suite en rojo o sin haberla ejecutado.
 
 ---
 
-## 8. OpenSpec (verificado contra doc oficial, 2.0.0)
+## 8. OpenSpec (verificado contra la doc oficial)
 
-- **Paquete**: `@fission-ai/openspec@2.0.0` (MIT). **Requiere Node ≥ 22.12.0**.
+- **Paquete**: `@fission-ai/openspec` (CLI `openspec`, MIT). Versión fijada y requisito de Node: [PROJECT.md §4](./PROJECT.md).
 - **Instalación**: `npm install -g @fission-ai/openspec@latest` (alternativas: `curl -fsSL https://openspec.dev/cli/install.sh | sh`, `brew install openspec`).
 - **Init en el proyecto**: `openspec init --tools cline` (id de Cline = `cline`): instala las skills compartidas en `.agents/skills/openspec-*/SKILL.md`. El contexto del proyecto (documentación en español) ya vive en `openspec/config.yaml`, así que no hace falta `--language` al añadir herramientas.
 - **Invocación**: escribiendo `/` en el chat de Cline (`/openspec-propose`, `/openspec-apply`, `/openspec-archive`, `/openspec-explore`) o pidiéndoselo al agente. Desde la 2.0 no se generan slash commands `/opsx-*`: cada comando es una skill. Cline lee `AGENTS.md` de forma nativa como regla de proyecto, así que este fichero se autocarga en cada tarea nueva.
 - **Regenerar**: `openspec update` (previsualizable con `--dry-run`) refresca las skills y elimina los ficheros generados por versiones anteriores. Requiere reiniciar el IDE para que aparezcan.
-- **Estructura creada**: `openspec/config.yaml` (schema `spec-driven`), `openspec/specs/`, `openspec/changes/`, `openspec/changes/archive/` y `.agents/skills/`. **No** se crea `openspec/project.md` (legacy en esta versión).
+- **Dónde vive qué**: la estructura de `openspec/` y el papel de `openspec/config.yaml` están en [PROJECT.md §2](./PROJECT.md) y [§6](./PROJECT.md).
 - **CLI útil**: `openspec list [--specs]`, `openspec show`, `openspec view`, `openspec validate`, `openspec archive`, `openspec status`, `openspec new`, `openspec update [--dry-run]`, `openspec config`.
 - **Workflows disponibles**: `explore`, `propose`, `apply` y `archive` por defecto; `update`, `sync`, `verify`, `bulk-archive`, `new`, `continue`, `ff` y `onboard` se activan con `openspec config profile`.
 - **Telemetría**: activa por defecto (solo nombre de comando + versión). Opt-out: `openspec config set telemetry.enabled false`.

@@ -24,7 +24,7 @@ Trabajamos con **Spec-Driven Development (SDD)** orquestado por **OpenSpec** (`@
   - `specs/` → requirements y scenarios (`## ADDED Requirements`, `#### Scenario:`).
   - `design.md` → cómo se hará (decisiones técnicas).
   - `tasks.md` → checklist ejecutable.
-- El ciclo se opera con las *skills* de OpenSpec: `explore`, `propose`, `apply`, `archive` (y opcionales `update`, `sync`, `verify`, `bulk-archive`, que se añaden con `openspec config profile`). Desde la 2.0 las skills viven en `.agents/skills/` y no hay slash commands: en Cline se invocan como `/openspec-apply` o pidiéndoselo al agente.
+- El ciclo (`explore` → `propose` → `apply` → `archive`) se opera con las *skills* de OpenSpec. La operativa de la herramienta —invocación, workflows y CLI— es contexto del agente y vive en `AGENTS.md` §8.
 - Al cerrarse, el change se mueve a `openspec/changes/archive/<fecha>-<change>/` y la spec "as-built" se consolida en `openspec/specs/`.
 - La configuración del proyecto (contexto para la IA + schema) vive en **`openspec/config.yaml`** con schema `spec-driven`. **No** usamos `openspec/project.md`: es un formato legacy en esta versión (el `init` no lo crea y propone migrarlo a `config.yaml`).
 - **Nada se implementa sin un change aprobado por el usuario.**
@@ -141,7 +141,7 @@ Almacenamiento de objetos: **Versity S3 Gateway 1.11.0** (`versity/versitygw:v1.
 ## 7. Convenciones
 
 - **Código en inglés**: clases, métodos, variables, mensajes de commit y **todos los comentarios de ficheros de código o de configuración/build** (`pom.xml`, `config/checkstyle/*.xml`, `.editorconfig`, `.gitignore`, `.gitattributes`, `Dockerfile`, Compose, scripts).
-- **Documentación en español**: README, PROJECT.md, AGENTS.md, STATUS.md y specs OpenSpec (incluido `openspec/config.yaml`). El idioma de un comentario lo decide **el tipo de fichero**, no el tema del que habla. Los comentarios explican el *por qué*, no el *qué*.
+- **Documentación en español**: README, PROJECT.md, AGENTS.md, STATUS.md y specs OpenSpec (incluido `openspec/config.yaml`). El idioma de un comentario lo decide **el tipo de fichero**, no el tema del que habla, y **no hay excepciones** por tamaño del fichero ni por quién lo lea. Los comentarios explican el *por qué*, no el *qué*.
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 - **Ramas**: `main` (estable), `feat/<change-id>-<slug>`, `fix/<slug>`.
 - **Rama por change**: cada change OpenSpec se implementa en su propia rama; el PR referencia el `change-id`.

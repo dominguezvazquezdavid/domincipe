@@ -12,8 +12,8 @@
 ## 1. Git
 
 - **Rama**: `feat/project-skeleton-bootstrap`. **No existe `main` local ni remota** y **nada está publicado** (sin refs en `origin`).
-- **HEAD**: el commit que añade el parent POM (`feat(build): add the multi-module parent POM`); usa `git log -1` para el SHA exacto. Antes quedaron `1eea585` (contrato de mantenimiento de este fichero) y `f6a8a62` (CRLF de scripts Windows), último con contenido previo.
-- **Últimos commits con contenido** (de nuevo a viejo): parent POM `pom.xml` · `1eea585` contrato de `STATUS.md` · `4c3a05b` snapshot de estado · `f6a8a62` CRLF de scripts Windows · `950b819` checksum de Maven · `c9d8135` Checkstyle · `838c605` Maven Wrapper · `d28c120` versiones verificadas + OpenSpec 2.0.
+- **HEAD**: **el último commit añadido a la rama**. El SHA exacto se lee con `git log -1` y no se copia aquí (copiarlo es la forma más rápida de que esta foto mienta). Ahora mismo es el que reparte contexto de agente (`AGENTS.md`) y de proyecto (`PROJECT.md`); detrás van `4f5733a` regla de idioma de comentarios · `76376ff` comentarios traducidos · `8a0102a` parent POM.
+- **Últimos commits con contenido** (de nuevo a viejo): reparto `AGENTS.md`/`PROJECT.md` · `4f5733a` convenciones de comentarios · `76376ff` comentarios en inglés · `8a0102a` parent POM · `1eea585` contrato de `STATUS.md` · `4c3a05b` snapshot de estado · `f6a8a62` CRLF de scripts Windows · `950b819` checksum de Maven · `c9d8135` Checkstyle · `838c605` Maven Wrapper · `d28c120` versiones verificadas + OpenSpec 2.0.
 - **Árbol de trabajo**: limpio (este fichero viaja en el mismo commit que describe).
 - **Remoto**: `git@github.com:dominguezvazquezdavid/domincipe.git` (SSH).
   - ⚠️ **No se puede hacer push aún**: la clave `~/.ssh/id_ed25519` tiene **passphrase** y no hay `ssh-agent` → `ssh -T git@github.com` devuelve `Permission denied (publickey)`. Solución en la sesión del usuario: `eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519`.
@@ -64,7 +64,8 @@ openspec/{config.yaml, specs/, changes/project-skeleton/, changes/archive/}
 - **La versión del parent se escribe literal** (`4.1.2` en `<parent><version>`): Maven no interpola properties ahí. La property `spring-boot.version` repite el valor para el resto de referencias y la verificación de 2.1 compara ambas.
 - **Lint en `validate`**, no en la fase por defecto del goal `check` (`verify`), con `configLocation` en `${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml`: determinista porque hay `.mvn/` en la raíz, incluso lanzando desde un módulo hijo.
 - **failsafe no se reconfigura**: el starter-parent ya ata `integration-test` + `verify` con `classesDirectory` a `target/classes`; declarar ejecuciones propias duplica las del parent.
-- **Idioma de los comentarios**: inglés en **todo** fichero de código o configuración/build (`pom.xml`, `checkstyle.xml`, `.editorconfig`, `.gitignore`, `.gitattributes`, Compose, Dockerfile, scripts) y español solo en documentación (`README.md`, `PROJECT.md`, `AGENTS.md`, `STATUS.md`, `openspec/**`). Lo fija `AGENTS.md` §5; el idioma lo decide el tipo de fichero, no el tema.
+- **Reparto de documentos**: `AGENTS.md` contiene **solo contexto del agente** (conducta, entorno de trabajo y operativa de herramientas); `PROJECT.md` contiene **todo lo descriptivo del proyecto** (visión, metodología, arquitectura, stack, estructura, convenciones, testing y entornos). Un tema presente en los dos sitios es un error, y la fuente de verdad siempre es `PROJECT.md`.
+- **Idioma de los comentarios**: inglés en **todo** fichero de código o configuración/build (`pom.xml`, `checkstyle.xml`, `.editorconfig`, `.gitignore`, `.gitattributes`, Compose, Dockerfile, scripts) y español solo en documentación (`README.md`, `PROJECT.md`, `AGENTS.md`, `STATUS.md`, `openspec/**`). Lo fija `PROJECT.md` §7; el idioma lo decide el tipo de fichero, no el tema.
 - **Versión del proyecto `0.1.0-SNAPSHOT`**: ningún documento la definía; se fija en el parent para que los ocho módulos internos la hereden.
 
 ## 6. Trampas conocidas (ya nos costaron tiempo)
