@@ -5,7 +5,7 @@
 <!--
   Domincipe style rules.
   References: PROJECT.md §8 (lint as part of the Definition of Done) and
-  AGENTS.md §5 (conventions). What this file guarantees in a verifiable
+  PROJECT.md §7 (conventions). What this file guarantees in a verifiable
   way: packages under com.domincipe, 120 columns, no star imports and no
   unused imports.
 
