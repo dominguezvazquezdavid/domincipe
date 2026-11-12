@@ -118,3 +118,14 @@ Domincipe es una web **de recetas** para uso personal, con fines **educativos**:
 - [STATUS.md](./STATUS.md) — foto fechada del estado real (caché de contexto, **no** fuente de verdad: caduca, se refresca con sus propios comandos).
 - [openspec/](./openspec/) — specs y changes (SDD).
 - [README.md](./README.md) — arranque rápido.
+
+### Contrato de mantenimiento de `STATUS.md`
+
+`STATUS.md` es una **caché de contexto**, no documentación: existe para que una sesión nueva no tenga que releer todo. Su único valor es estar al día, así que:
+
+- **Cuándo se actualiza** — en el mismo commit en que: cambia una casilla de `tasks.md`, cambia la estructura o una versión del toolchain, se archiva un change, o cambia el remoto/credenciales. Nunca "para luego".
+- **Cómo** — ejecutar los comandos de su §7, ajustar lo que haya cambiado y **mover la fecha** del encabezado.
+- **Caducidad** — si lleva más de un change o más de 10 commits sin actualizar, el agente **no lo usa** como contexto: lo regenera o lo borra antes de fiarse. Nunca se resuelve una discrepancia dándole la razón a `STATUS.md`.
+- **Prioridad** — ante contradicción mandan git, `openspec/` y `PROJECT.md`; `STATUS.md` se corrige en ese momento.
+- **Límites** — máximo ~100 líneas; no duplica lo que ya vive en `PROJECT.md` (lo referencia); sin secretos, tokens ni claves privadas (las *fingerprints* públicas sí).
+- **No sustituye** a `PROJECT.md`: para arquitectura, testing o convenciones se lee `PROJECT.md`, no el resumen.

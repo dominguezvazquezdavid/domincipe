@@ -3,6 +3,7 @@
 > **Qué es**: resumen **fechado** del estado real del proyecto, para que una sesión nueva (persona o agente) arranque con contexto mínimo sin releer `PROJECT.md`, `AGENTS.md`, `tasks.md` y el historial de git.
 > **No es fuente de verdad.** Si este fichero discrepa de lo que dicen git, `openspec/` o `PROJECT.md`, mandan ellos.
 > **Caduca** en cuanto se commitea, se archiva un change o cambia el toolchain. Refréscalo con los comandos de §7 y actualiza la fecha.
+> **Contrato de mantenimiento**: [`AGENTS.md` §9](./AGENTS.md) — cuándo actualizarlo, regla de caducidad y límites.
 
 **Última actualización:** 2026-11-12 · Change activo: `project-skeleton`
 
