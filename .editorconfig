@@ -1,6 +1,6 @@
 root = true
 
-# Base común: un mismo fichero debe verse igual en cualquier máquina.
+# Shared base: the same file must look the same on any machine.
 [*]
 charset = utf-8
 end_of_line = lf
@@ -13,7 +13,7 @@ indent_size = 2
 indent_size = 4
 
 [*.{md,markdown}]
-# En Markdown los dos espacios finales son un salto de línea intencional.
+# In Markdown, two trailing spaces are an intentional line break.
 trim_trailing_whitespace = false
 
 [*.{yml,yaml,json,jsonc,js,jsx,ts,tsx,css,scss,html}]
@@ -31,8 +31,9 @@ indent_size = 2
 [{mvnw,.mvn/**}]
 indent_size = 2
 
-# Los scripts por lotes los ejecuta cmd.exe, que espera CRLF. mvnw.cmd lo
-# genera así el plugin oficial del wrapper, y reescribirlo a LF produce un
-# diff espurio en cada guardado desde el IDE (y rompe algunos `goto :label`).
+# Batch scripts are executed by cmd.exe, which expects CRLF. mvnw.cmd is
+# generated that way by the official wrapper plugin, and rewriting it to LF
+# produces a spurious diff on every save from the IDE (and breaks some
+# `goto :label`).
 [*.{cmd,bat}]
 end_of_line = crlf
