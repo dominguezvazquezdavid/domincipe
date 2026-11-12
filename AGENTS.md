@@ -35,7 +35,7 @@ Domincipe es una web **de recetas** para uso personal, con fines **educativos**:
 - Stack, arquitectura, bounded contexts, testing y convenciones: **[PROJECT.md](./PROJECT.md)** (fuente de verdad).
 - Metodología **SDD + OpenSpec**: cada cambio se especifica antes de implementar. Los changes viven en `openspec/changes/`.
 - Repositorio: `https://github.com/dominguezvazquezdavid/domincipe` (público, **SSH**).
-- Raíz local del proyecto: `./workspace/domincipe/`.
+- Raíz local del proyecto: `./workspace/domincipe/` (ruta absoluta: `/home/domin/workspace/domincipe/`).
 
 ---
 
@@ -66,7 +66,7 @@ Domincipe es una web **de recetas** para uso personal, con fines **educativos**:
 - **Ramas**: `main` (estable), `feat/<change-id>-<slug>`, `fix/<slug>`.
 - **Package base**: `com.domincipe.<servicio>`.
 - **Configuración**: 100% por variables de entorno. `.env.example` versionado; `.env` ignorado.
-- **Rutas de archivos**: usar siempre `./workspace/domincipe/...`. **No asumir rutas absolutas** ni verificar con `ls`/terminal: resuelven contra otro filesystem del que ve el editor.
+- **Rutas del proyecto**: la raíz del repositorio es `./workspace/domincipe/`, cuya ruta absoluta equivalente es `/home/domin/workspace/domincipe/`. Son **la misma ruta**, no dos filesystems distintos: cualquiera de las dos vale como prefijo al referenciar ficheros. Verificar con `ls`, `git` o el editor está **permitido y recomendado** (Regla 0.2); lo que no se hace es **afirmar** una ruta sin comprobarla.
 
 ---
 
