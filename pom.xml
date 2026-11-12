@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Parent and aggregator of the Domincipe multi-module build.
+  Versions: PROJECT.md §4. Build policy: PROJECT.md §8.
+  Rationale for every decision: openspec/changes/project-skeleton/design.md (D1-D6).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      The version is written literally because Maven does not interpolate <properties> at
+      this point (verified: "${spring-boot.version}" ends up looking for an artifact with
+      that literal name and fails) and ${revision} would drag in flatten-maven-plugin.
+      The spring-boot.version property repeats the value for the remaining references, and
+      the task 2.1 check compares parent against property, so a half-done upgrade cannot
+      slip through unnoticed.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.2</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.domincipe</groupId>
+    <artifactId>domincipe-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>Domincipe</name>
+    <description>Domincipe multi-module build: gateway, five services and shared libraries.</description>
+    <url>https://github.com/dominguezvazquezdavid/domincipe</url>
+
+    <modules>
+        <!--
+          Empty on purpose. Maven aborts the reactor when a declared <module> has no
+          directory ("Child module ... does not exist", verified), so each module is
+          declared in the same commit that creates its pom.xml: tasks 3.1, 4.1 and 5.1.
+        -->
+    </modules>
+
+    <properties>
+        <!--
+          java.version also moves maven.compiler.release, which the starter parent derives
+          from it: it is the only switch needed to compile for Java 21 (verified).
+        -->
+        <java.version>21</java.version>
+        <spring-boot.version>4.1.2</spring-boot.version>
+        <springdoc.version>3.2.0</springdoc.version>
+        <!--
+          maven-checkstyle-plugin 3.6.0 pulls in Checkstyle 9.3, which cannot parse Java 21
+          syntax (verified: a record with pattern matching breaks it). 14.4.0 is forced, the
+          same version used to validate config/checkstyle/checkstyle.xml.
+        -->
+        <checkstyle.version>14.4.0</checkstyle.version>
+        <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
+        <jacoco-maven-plugin.version>0.8.16</jacoco-maven-plugin.version>
+        <exec-maven-plugin.version>3.7.0</exec-maven-plugin.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!--
+              The springdoc BOM gives the springdoc.version property a single consumer: the
+              services declare it without a version in task 5.5 and all stay aligned.
+            -->
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-bom</artifactId>
+                <version>${springdoc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Internal modules: a single version, the parent's, for all eight artifacts. -->
+            <dependency>
+                <groupId>com.domincipe</groupId>
+                <artifactId>api-gateway</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.domincipe</groupId>
+                <artifactId>auth-service</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.domincipe</groupId>
+                <artifactId>user-service</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.domincipe</groupId>
+                <artifactId>recipe-service</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.domincipe</groupId>
+                <artifactId>media-service</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.domincipe</groupId>
+                <artifactId>notification-service</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.domincipe</groupId>
+                <artifactId>common-dto</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.domincipe</groupId>
+                <artifactId>common-observability</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <!--
+                  surefire without <version>: managed by spring-boot-starter-parent (3.5.6 in
+                  4.1.2). Declared so that no module pins its own.
+                -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                </plugin>
+                <!--
+                  The starter parent already binds integration-test and verify to this phase
+                  with classesDirectory pointing at target/classes (verified in the effective
+                  POM), so no executions are declared here: they would only duplicate the
+                  parent's. With zero ITs it answers "No tests to run" without failing the
+                  build. The plugin is activated in <plugins> so it runs in every module.
+                -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                </plugin>
+
+                <!--
+                  The gate (0.80 lines / 0.70 branches plus the D5 exclusions) is added in task
+                  2.3 on top of this same configuration: here only the agent and the report
+                  are left, which cannot break the build while no module has tests.
+                -->
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>${jacoco-maven-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>prepare-agent</id>
+                            <goals>
+                                <goal>prepare-agent</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>report</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>report</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <!--
+                  Lint runs in `validate`, not in the default phase of the `check` goal (which
+                  is `verify`): a forbidden import must break before compiling and testing.
+                  The path hangs off ${maven.multiModuleProjectDirectory}, which the launcher
+                  resolves by walking up to the root .mvn/; verified by launching from a child
+                  module (a plain relative path also worked, but by undocumented behaviour).
+                  includeTestSourceDirectory applies the same rules to test sources.
+                -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>${maven-checkstyle-plugin.version}</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.puppycrawl.tools</groupId>
+                            <artifactId>checkstyle</artifactId>
+                            <version>${checkstyle.version}</version>
+                        </dependency>
+                    </dependencies>
+                    <executions>
+                        <execution>
+                            <id>lint</id>
+                            <phase>validate</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                            <configuration>
+                                <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml</configLocation>
+                                <consoleOutput>true</consoleOutput>
+                                <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <!--
+                  No executions yet: task 2.2 wires scripts/verify-modules.sh into `validate`
+                  to catch directories that Maven silently ignores.
+                -->
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>exec-maven-plugin</artifactId>
+                    <version>${exec-maven-plugin.version}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
+        <plugins>
+            <!--
+              Activated in the parent, so every module inherits them; their configuration
+              lives in pluginManagement to avoid duplication. jacoco is activated in task 2.3.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
