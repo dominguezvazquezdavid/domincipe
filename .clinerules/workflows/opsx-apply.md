@@ -1,10 +1,6 @@
----
-name: "opsx-apply"
-description: "Implement tasks from an OpenSpec change (Experimental)"
-invokable: true
----
+# OPSX: Apply
 
-This workflow prompt is already active. Follow its instructions directly. Do not call a tool named after this workflow.
+Implement tasks from an OpenSpec change (Experimental)
 
 Implement tasks from an OpenSpec change.
 

@@ -24,7 +24,7 @@ Trabajamos con **Spec-Driven Development (SDD)** orquestado por **OpenSpec** (`@
   - `specs/` → requirements y scenarios (`## ADDED Requirements`, `#### Scenario:`).
   - `design.md` → cómo se hará (decisiones técnicas).
   - `tasks.md` → checklist ejecutable.
-- El ciclo se opera con los *workflows* de OpenSpec: `explore`, `propose`, `apply`, `archive` (y opcionales `update`, `sync`, `verify`, `bulk-archive`). Invocación según herramienta: en Continue se escriben como `/opsx-apply`; en Claude Code, `/opsx:apply`.
+- El ciclo se opera con los *workflows* de OpenSpec: `explore`, `propose`, `apply`, `archive` (y opcionales `update`, `sync`, `verify`, `bulk-archive`). Invocación: en Cline se escriben como `/opsx-apply`, desde las skills de `.cline/skills/`.
 - Al cerrarse, el change se mueve a `openspec/changes/archive/<fecha>-<change>/` y la spec "as-built" se consolida en `openspec/specs/`.
 - La configuración del proyecto (contexto para la IA + schema) vive en **`openspec/config.yaml`** con schema `spec-driven`. **No** usamos `openspec/project.md`: es un formato legacy en esta versión (el `init` no lo crea y propone migrarlo a `config.yaml`).
 - **Nada se implementa sin un change aprobado por el usuario.**
@@ -76,7 +76,7 @@ Observabilidad (siempre activa en local):
 | Imágenes | Kaniko | — | sin Docker-in-Docker |
 | SBOM / escaneo | Syft + Trivy | — | rompe build si HIGH/CRITICAL |
 | Observabilidad | Micrometer + Prometheus + Grafana + Loki + Tempo | — | — |
-| SDD | OpenSpec (`@fission-ai/openspec`) | 1.17.0 | requiere **Node ≥ 22.12.0**; tool id `continue` |
+| SDD | OpenSpec (`@fission-ai/openspec`) | 1.17.0 | requiere **Node ≥ 22.12.0**; tool id `cline` |
 
 ## 5. Bounded contexts (servicios y responsabilidades)
 
@@ -108,9 +108,10 @@ Observabilidad (siempre activa en local):
 │   ├── specs/           # specs as-built
 │   └── changes/         # changes pendientes
 │       └── archive/     # changes cerrados + specs consolidadas
-├── .continue/           # skills y prompts de OpenSpec para Continue
-│   ├── skills/
-│   └── prompts/
+├── .cline/              # skills de OpenSpec para Cline
+│   └── skills/
+├── .clinerules/         # workflows de OpenSpec para Cline
+│   └── workflows/
 ├── config/              # configuración compartida de lint (Checkstyle)
 ├── scripts/             # verificaciones del esqueleto (módulos, imágenes, entorno)
 ├── apps/

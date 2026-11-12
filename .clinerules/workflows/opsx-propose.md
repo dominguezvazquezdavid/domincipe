@@ -1,10 +1,6 @@
----
-name: "opsx-propose"
-description: "Propose a new change - create it and generate all artifacts in one step"
-invokable: true
----
+# OPSX: Propose
 
-This workflow prompt is already active. Follow its instructions directly. Do not call a tool named after this workflow.
+Propose a new change - create it and generate all artifacts in one step
 
 Propose a new change - create the change and generate all artifacts in one step.
 

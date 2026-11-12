@@ -1,10 +1,6 @@
----
-name: "opsx-archive"
-description: "Archive a completed change in the experimental workflow"
-invokable: true
----
+# OPSX: Archive
 
-This workflow prompt is already active. Follow its instructions directly. Do not call a tool named after this workflow.
+Archive a completed change in the experimental workflow
 
 Archive a completed change in the experimental workflow.
 

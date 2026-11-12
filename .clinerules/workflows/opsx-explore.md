@@ -1,10 +1,6 @@
----
-name: "opsx-explore"
-description: "Enter explore mode - think through ideas, investigate problems, clarify requirements"
-invokable: true
----
+# OPSX: Explore
 
-This workflow prompt is already active. Follow its instructions directly. Do not call a tool named after this workflow.
+Enter explore mode - think through ideas, investigate problems, clarify requirements
 
 Enter explore mode. Think deeply. Visualize freely. Follow the conversation wherever it goes.
 

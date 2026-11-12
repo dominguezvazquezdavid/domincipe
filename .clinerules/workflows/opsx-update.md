@@ -1,10 +1,6 @@
----
-name: "opsx-update"
-description: "Update a change - revise existing planning artifacts and keep them coherent (Experimental)"
-invokable: true
----
+# OPSX: Update
 
-This workflow prompt is already active. Follow its instructions directly. Do not call a tool named after this workflow.
+Update a change - revise existing planning artifacts and keep them coherent (Experimental)
 
 Revise a change's existing planning artifacts and keep them coherent. Never edit code.
 

@@ -1,10 +1,6 @@
----
-name: "opsx-sync"
-description: "Sync delta specs from a change to main specs"
-invokable: true
----
+# OPSX: Sync
 
-This workflow prompt is already active. Follow its instructions directly. Do not call a tool named after this workflow.
+Sync delta specs from a change to main specs
 
 Sync delta specs from a change to main specs.
 

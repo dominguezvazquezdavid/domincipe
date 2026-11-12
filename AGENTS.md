@@ -1,6 +1,6 @@
 # AGENTS.md — Domincipe
 
-> Instrucciones para agentes de IA (Continue.dev, Cursor, Claude Code, Codex, etc.).
+> Instrucciones para agentes de IA (Cline, Cursor, Claude Code, Codex, etc.).
 > Convención: [agents.md](https://agents.md). **Corto por diseño** — el detalle vive en [PROJECT.md](./PROJECT.md).
 > Orden de lectura: `AGENTS.md` → `PROJECT.md` → `openspec/` → `README.md`.
 
@@ -101,7 +101,9 @@ Domincipe es una web **de recetas** para uso personal, con fines **educativos**:
 
 - **Paquete**: `@fission-ai/openspec@1.17.0` (MIT). **Requiere Node ≥ 22.12.0**.
 - **Instalación**: `npm install -g @fission-ai/openspec@latest` (alternativas: `curl -fsSL https://openspec.dev/cli/install.sh | sh`, `brew install openspec`).
-- **Init en el proyecto**: `openspec init --tools continue --language spanish` (id de Continue = `continue`; escribe en `.continue/skills/` y `.continue/prompts/`).
+- **Init en el proyecto**: `openspec init --tools cline` (id de Cline = `cline`): genera las skills en `.cline/skills/openspec-*/SKILL.md` y los workflows en `.clinerules/workflows/opsx-*.md`. El contexto del proyecto (documentación en español) ya vive en `openspec/config.yaml`, así que no hace falta `--language` al añadir herramientas.
+- **Invocación**: escribiendo `/` en el chat de Cline (`/opsx-propose`, `/opsx-apply`, `/opsx-archive`, `/opsx-explore`). Cline lee `AGENTS.md` de forma nativa como regla de proyecto, así que este fichero se autocarga en cada tarea nueva.
+- **Regenerar**: `openspec update` refresca skills y workflows tras actualizar el CLI. Requiere reiniciar el IDE para que aparezcan los comandos.
 - **Estructura creada**: `openspec/config.yaml` (schema `spec-driven`), `openspec/specs/`, `openspec/changes/`, `openspec/changes/archive/`. **No** se crea `openspec/project.md` (legacy en esta versión).
 - **CLI útil**: `openspec list [--specs]`, `openspec show`, `openspec view`, `openspec validate`, `openspec archive`, `openspec status`, `openspec new`, `openspec update [--dry-run]`, `openspec config`.
 - **Workflows (slash commands)**: `explore`, `propose`, `apply`, `archive` (+ opcionales vía `openspec config profile`).

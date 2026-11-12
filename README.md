@@ -100,7 +100,8 @@ Se puede desactivar con `APP_DOCS_ENABLED=false`, sin tocar código ni reconstru
 ├── .editorconfig          # UTF-8, LF e indentación por tipo de fichero
 ├── .mvn/                  # Maven Wrapper (versión de Maven fijada)
 ├── openspec/              # SDD: config, specs as-built y changes
-├── .continue/             # skills y prompts de OpenSpec para Continue
+├── .cline/                # skills de OpenSpec para Cline
+├── .clinerules/           # workflows de OpenSpec para Cline
 ├── config/                # configuración de lint (Checkstyle) compartida
 ├── scripts/               # verificaciones del esqueleto (módulos, imágenes, entorno)
 ├── apps/
@@ -140,7 +141,7 @@ openspec validate --strict    # validación estricta de los artefactos
 openspec status --change <id> # progreso de los artefactos y tareas
 ```
 
-En Continue los workflows se invocan como `/opsx-propose`, `/opsx-apply`, `/opsx-archive`, `/opsx-explore`.
+En Cline los workflows se invocan escribiendo `/` en el chat (`/opsx-propose`, `/opsx-apply`, `/opsx-archive`, `/opsx-explore`), servidos por las skills de `.cline/skills/`.
 
 ---
 
