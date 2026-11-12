@@ -30,3 +30,9 @@ indent_size = 2
 
 [{mvnw,.mvn/**}]
 indent_size = 2
+
+# Los scripts por lotes los ejecuta cmd.exe, que espera CRLF. mvnw.cmd lo
+# genera así el plugin oficial del wrapper, y reescribirlo a LF produce un
+# diff espurio en cada guardado desde el IDE (y rompe algunos `goto :label`).
+[*.{cmd,bat}]
+end_of_line = crlf
