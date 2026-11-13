@@ -60,6 +60,17 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <!--
+          API documentation is a runtime feature every service publishes. The dependency is
+          optional so the library can compile the auto-configuration without forcing springdoc on
+          any consumer: each service declares springdoc explicitly, as its own contract requires.
+          Version managed by the springdoc-openapi-bom imported in the parent.
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
           spring-boot-starter-test already brings spring-test (MockMvc), JUnit 5, AssertJ and
           Mockito (verified in its 4.1.2 POM), so a dedicated MVC slice starter is not needed
           for standalone MockMvc tests.

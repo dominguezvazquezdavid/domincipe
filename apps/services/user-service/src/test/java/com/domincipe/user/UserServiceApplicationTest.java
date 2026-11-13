@@ -1,15 +1,16 @@
 package com.domincipe.user;
 
+import com.domincipe.common.test.DomincipeServiceTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
 /**
  * Checks that the module starts as a real Spring Boot application.
  *
- * <p>{@code app.environment} is supplied because it is mandatory and has no default value
- * (service-runtime spec); the early-failure cases are covered by dedicated tests, not here.
+ * <p>The mandatory {@code APP_ENVIRONMENT} and the random port come from
+ * {@link DomincipeServiceTest}; requests against the running service are covered by
+ * {@link UserServiceRuntimeContractTest}, and the early-failure cases by dedicated tests.
  */
-@SpringBootTest(properties = "app.environment=local")
+@DomincipeServiceTest
 class UserServiceApplicationTest {
 
     @Test

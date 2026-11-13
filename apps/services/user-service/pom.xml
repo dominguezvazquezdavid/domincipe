@@ -30,6 +30,24 @@
             <artifactId>common-observability</artifactId>
         </dependency>
         <!--
+          OpenAPI 3 contract generated from the code: /v3/api-docs and /swagger-ui.html, on by
+          default and switched off with APP_DOCS_ENABLED (service-runtime spec, design D16).
+          Version from the springdoc-openapi-bom imported in the parent.
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
+        <!--
+          Shared test building blocks: the @DomincipeServiceTest annotation and the runtime
+          contract every service runs, declared once in libs/common-test-support (D14).
+        -->
+        <dependency>
+            <groupId>com.domincipe</groupId>
+            <artifactId>common-test-support</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
           Test dependencies are not transitive, so every service declares its own test starter
           instead of relying on the one common-observability uses internally.
         -->

@@ -43,6 +43,8 @@ así que `application.yml`, un perfil o una variable de entorno del servicio sie
 | `spring.threads.virtual.enabled` | `SPRING_THREADS_VIRTUAL_ENABLED` | `true` |
 | `server.shutdown` | `SERVER_SHUTDOWN` | `graceful` |
 | `spring.lifecycle.timeout-per-shutdown-phase` | `SPRING_LIFECYCLE_TIMEOUTPERSHUTDOWNPHASE` | `30s` |
+| `springdoc.api-docs.enabled` | `APP_DOCS_ENABLED` | `true` |
+| `springdoc.swagger-ui.enabled` | `APP_DOCS_ENABLED` | `true` |
 
 ## Comportamiento en tiempo de ejecución
 
@@ -54,6 +56,11 @@ así que `application.yml`, un perfil o una variable de entorno del servicio sie
   para imprimirlo. El filtro retrocede (`@ConditionalOnMissingBean`) si el servicio declara el suyo.
 - **Apagado ordenado**: `server.shutdown=graceful` y una ventana de drenaje de 30 s, sobrescribibles
   con las variables de la tabla anterior.
+- **Documentación OpenAPI**: con `springdoc-openapi-starter-webmvc-ui` en el servicio, el contrato
+  generado se publica en `/v3/api-docs` y la interfaz interactiva en `/swagger-ui.html`. El título
+  del documento es `spring.application.name` y su versión, `spring.application.version` (el POM la
+  filtra a `src/main/resources/application*.yml` con `@project.version@`). `APP_DOCS_ENABLED=false`
+  apaga ambos endpoints sin tocar código.
 
 ## Arranque
 

@@ -3,6 +3,9 @@
 spring:
   application:
     name: notification-service
+    # Filled by Maven resource filtering (@ delimiters) from the module version; the OpenAPI
+    # document takes its version from here (design D16).
+    version: @project.version@
 
 # Correlation id of the in-flight request, published in the MDC by common-observability.
 # The empty default keeps the token harmless when a log line is written outside a request.

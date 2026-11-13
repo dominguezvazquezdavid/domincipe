@@ -42,6 +42,7 @@
         -->
         <module>libs/common-dto</module>
         <module>libs/common-observability</module>
+        <module>libs/common-test-support</module>
         <module>apps/api-gateway</module>
         <module>apps/services/auth-service</module>
         <module>apps/services/user-service</module>
@@ -127,6 +128,11 @@
             <dependency>
                 <groupId>com.domincipe</groupId>
                 <artifactId>common-observability</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.domincipe</groupId>
+                <artifactId>common-test-support</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
