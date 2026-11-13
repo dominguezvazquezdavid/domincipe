@@ -141,7 +141,7 @@ Almacenamiento de objetos: **Versity S3 Gateway 1.11.0** (`versity/versitygw:v1.
 ## 7. Convenciones
 
 - **Código en inglés**: clases, métodos, variables, mensajes de commit y **todos los comentarios de ficheros de código o de configuración/build** (`pom.xml`, `config/checkstyle/*.xml`, `.editorconfig`, `.gitignore`, `.gitattributes`, `Dockerfile`, Compose, scripts).
-- **Documentación en español**: README, PROJECT.md, AGENTS.md, STATUS.md y specs OpenSpec (incluido `openspec/config.yaml`). El idioma de un comentario lo decide **el tipo de fichero**, no el tema del que habla, y **no hay excepciones** por tamaño del fichero ni por quién lo lea. Los comentarios explican el *por qué*, no el *qué*.
+- **Documentación en español**: README, PROJECT.md, AGENTS.md y specs OpenSpec (incluido `openspec/config.yaml`). El idioma de un comentario lo decide **el tipo de fichero**, no el tema del que habla, y **no hay excepciones** por tamaño del fichero ni por quién lo lea. Los comentarios explican el *por qué*, no el *qué*.
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 - **Ramas**: `main` (estable), `feat/<change-id>-<slug>`, `fix/<slug>`.
 - **Rama por change**: cada change OpenSpec se implementa en su propia rama; el PR referencia el `change-id`.
