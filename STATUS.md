@@ -5,7 +5,7 @@
 > **Caduca** en cuanto se commitea, se archiva un change o cambia el toolchain. Refréscalo con los comandos de §7 y actualiza la fecha.
 > **Contrato de mantenimiento**: [`AGENTS.md` §9](./AGENTS.md) — cuándo actualizarlo, regla de caducidad y límites.
 
-**Última actualización:** 2026-11-12 · Change activo: `project-skeleton`
+**Última actualización:** 2026-11-13 · Change activo: `project-skeleton`
 
 ---
 
@@ -25,9 +25,9 @@
 `project-skeleton` — **planificación completa (4/4 artefactos)** y `openspec validate --changes --strict` en verde.
 
 - Artefactos en `openspec/changes/project-skeleton/`: `proposal.md`, `design.md`, `tasks.md` y 4 specs: `repo-layout`, `service-runtime`, `local-environment`, `web-shell`.
-- **Tareas: 5 hechas / 31 pendientes.** Hechas: 1.1 ficheros raíz · 1.2 versiones verificadas · 1.3 Maven Wrapper · 1.4 Checkstyle · 2.1 parent POM.
-- **Siguiente tarea: 2.2 (`scripts/verify-modules.sh`)** → 2.3 gate JaCoCo → 2.4 documentar la decisión D5.
-- **Sin código de aplicación todavía**: hay `pom.xml` (parent con `<modules>` **vacío** a propósito), pero no `apps/`, `libs/`, `ops/`, `scripts/` ni `.env.example`. `./mvnw -B -ntp verify` está en verde **sin compilar nada**: no confundirlo con un build real.
+- **Tareas: 6 hechas / 30 pendientes.** Hechas: 1.1 ficheros raíz · 1.2 versiones verificadas · 1.3 Maven Wrapper · 1.4 Checkstyle · 2.1 parent POM · 2.2 guardián de módulos.
+- **Siguiente tarea: 2.3 (gate JaCoCo)** → 2.4 documentar la decisión D5.
+- **Sin código de aplicación todavía**: hay `pom.xml` (parent con `<modules>` **vacío** a propósito) y `scripts/verify-modules.sh`, pero no `apps/`, `libs/`, `ops/` ni `.env.example`. `./mvnw -B -ntp verify` está en verde **sin compilar nada**: no confundirlo con un build real.
 
 ## 3. Qué hay ya en el repo
 
@@ -36,6 +36,7 @@ AGENTS.md  PROJECT.md  README.md  LICENSE  STATUS.md
 .editorconfig  .gitattributes  .gitignore
 .mvn/wrapper/maven-wrapper.properties     mvnw (100755)  mvnw.cmd (CRLF)
 config/checkstyle/checkstyle.xml
+scripts/verify-modules.sh                 (100755; guardián de módulos, solo corre en el agregador)
 pom.xml                                   (parent: Spring Boot 4.1.2, Java 21, <modules> vacío)
 openspec/{config.yaml, specs/, changes/project-skeleton/, changes/archive/}
 .agents/skills/openspec-*/SKILL.md        (skills de OpenSpec 2.0)
@@ -51,7 +52,7 @@ openspec/{config.yaml, specs/, changes/project-skeleton/, changes/archive/}
 | openspec | **2.0.0** | skills en `.agents/skills/` |
 | Docker / Compose | **29.9.3** / **v5.7.1** | sin usar todavía (nada de `ops/`) |
 | Checkstyle | **14.4.0** | dependencia forzada del `maven-checkstyle-plugin` 3.6.0 en el parent: el plugin arrastra 9.3, que no parsea Java 21 |
-| Plugins de build | jacoco **0.8.16** · exec **3.7.0** | properties del parent; jacoco declarado sin activar hasta 2.3, exec sin ejecuciones hasta 2.2 |
+| Plugins de build | jacoco **0.8.16** · exec **3.7.0** | properties del parent; jacoco declarado sin activar hasta 2.3, exec enganchado a `validate` en 2.2 (guardián de módulos) |
 
 ## 5. Decisiones cerradas (no re-discutir sin motivo nuevo)
 
@@ -60,7 +61,7 @@ openspec/{config.yaml, specs/, changes/project-skeleton/, changes/archive/}
 - **CRLF solo para scripts de Windows**: `.editorconfig` (`[*.{cmd,bat}] end_of_line = crlf`) + `.gitattributes` (`*.cmd text eol=crlf`). Blob en LF, checkout en CRLF; no depende de `core.autocrlf`.
 - **Checkstyle**: `config/checkstyle/checkstyle.xml` cubre paquete `com.domincipe`, 120 columnas, sin *star imports* y sin imports sin uso. Validado con el CLI 14.4.0 (7 violaciones esperadas en un fichero sucio, 0 en uno limpio). **`checkstyle.version=14.4.0` se fija en 2.1** porque el plugin 3.6.0 arrastra Checkstyle **9.3**, que no parsea sintaxis de Java 21.
 - **`.npmrc` va en `apps/web-frontend/`** (tarea 6.1), no en la raíz: npm **no** lee el `.npmrc` de directorios superiores (verificado empíricamente).
-- **`<modules>` se llena módulo a módulo** (2.1): un `<module>` sin directorio aborta el reactor, así que `<modules>` nace vacío y cada módulo entra en el mismo commit que su `pom.xml` (3.1, 4.1, 5.1). `scripts/verify-modules.sh` (2.2) vigila el invariante.
+- **`<modules>` se llena módulo a módulo** (2.1): un `<module>` sin directorio aborta el reactor, así que `<modules>` nace vacío y cada módulo entra en el mismo commit que su `pom.xml` (3.1, 4.1, 5.1). `scripts/verify-modules.sh` (2.2) vigila el invariante comparando los directorios con `pom.xml` bajo `apps/` y `libs/` contra el bloque `<modules>` y rompiendo `validate` con el nombre de los no declarados. `<inherited>false</inherited>` **no** evita heredar el plugin ni la ejecución (solo la configuración), así que la ejecución pasa `${project.basedir}` y el script comprueba únicamente cuando ese `basedir` es la raíz; en los hijos registra el *skip* y sale con 0.
 - **La versión del parent se escribe literal** (`4.1.2` en `<parent><version>`): Maven no interpola properties ahí. La property `spring-boot.version` repite el valor para el resto de referencias y la verificación de 2.1 compara ambas.
 - **Lint en `validate`**, no en la fase por defecto del goal `check` (`verify`), con `configLocation` en `${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml`: determinista porque hay `.mvn/` en la raíz, incluso lanzando desde un módulo hijo.
 - **failsafe no se reconfigura**: el starter-parent ya ata `integration-test` + `verify` con `classesDirectory` a `target/classes`; declarar ejecuciones propias duplica las del parent.
@@ -77,6 +78,7 @@ openspec/{config.yaml, specs/, changes/project-skeleton/, changes/archive/}
 - `${spring-boot.version}` en `<parent><version>` **no funciona**: Maven busca el artefacto con ese nombre literal y falla con `Non-resolvable parent POM`. La versión del parent va escrita a mano.
 - `maven.multiModuleProjectDirectory` lo calcula el launcher subiendo hasta un `.mvn/`: si ese directorio desaparece, apunta a donde se lanzó `mvn` y Checkstyle busca el ruleset en el sitio equivocado (probado).
 - Añadir ejecuciones propias a un plugin que el starter-parent ya configura (failsafe) **las duplica**: comprobar `help:effective-pom` antes de configurar.
+- `<inherited>false</inherited>` **no** impide heredar un plugin ni una ejecución: según el modelo de Maven 3.9.16 solo controla la propagación de *configuración* (comprobado con un módulo hijo: el script se ejecutaba dos veces). Si algo debe correr una sola vez en el agregador, hay que autolimitarse (aquí, comparando el `basedir` recibido con la raíz).
 - `.gitignore` mantiene `!.mvn/wrapper/maven-wrapper.jar`, residuo de plantillas que asumían el tipo `bin`; con `only-script` es innecesario.
 - `README.md` §"Estado actual" y `PROJECT.md` aún no reflejan el trabajo hecho: se actualizan en las tareas 9.1 y 9.2.
 

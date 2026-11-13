@@ -201,13 +201,33 @@
                 </plugin>
 
                 <!--
-                  No executions yet: task 2.2 wires scripts/verify-modules.sh into `validate`
-                  to catch directories that Maven silently ignores.
+                  Maven ignores undeclared module directories without a word, so a script
+                  compares the directories holding a pom.xml under apps/ and libs/ against
+                  the <modules> block and breaks `validate` naming any missing entry.
+                  The plugin is inherited by every module (inherited=false only stops
+                  configuration propagation, verified), so the script receives the module
+                  basedir and runs the check only at the aggregator.
                 -->
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
                     <artifactId>exec-maven-plugin</artifactId>
                     <version>${exec-maven-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>verify-modules</id>
+                            <phase>validate</phase>
+                            <goals>
+                                <goal>exec</goal>
+                            </goals>
+                            <configuration>
+                                <executable>${maven.multiModuleProjectDirectory}/scripts/verify-modules.sh</executable>
+                                <workingDirectory>${project.basedir}</workingDirectory>
+                                <arguments>
+                                    <argument>${project.basedir}</argument>
+                                </arguments>
+                            </configuration>
+                        </execution>
+                    </executions>
                 </plugin>
             </plugins>
         </pluginManagement>
@@ -224,6 +244,20 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
+            <!--
+              Guard against undeclared module directories. The plugin is activated in the
+              parent, so every module inherits the execution; the script itself only runs
+              the check when the basedir it receives is the aggregator's.
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>verify-modules</id>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
