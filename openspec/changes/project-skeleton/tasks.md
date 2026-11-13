@@ -22,7 +22,7 @@
 
 ## 4. Librería `common-dto`
 
-- [ ] 4.1 Crear el módulo con `ErrorResponse` y `PageResponse` y sus tests unitarios. Verificación: `./mvnw -B -ntp -pl libs/common-dto verify` en verde y el informe JaCoCo del módulo se genera sin romper el gate por falta de clases analizables.
+- [x] 4.1 Crear el módulo con `ErrorResponse` y `PageResponse` y sus tests unitarios. Verificación: `./mvnw -B -ntp -pl libs/common-dto verify` en verde y el informe JaCoCo del módulo se genera sin romper el gate por falta de clases analizables. **Hecha el 2026-11-13.** Módulo `libs/common-dto` (artefacto `common-dto`, package `com.domincipe.common.dto`) declarado en el `<modules>` del parent y sin dependencias de producción: solo `spring-boot-starter-test` en scope `test`, como `common-observability`. `ErrorResponse` es un `record` inmutable (`timestamp`, `status`, `code`, `message`, `path`, `requestId`) que valida el código HTTP y los campos obligatorios, con factoría `of(...)` que sella `Instant.now()`; `PageResponse<T>` copia defensivamente `content` con `List.copyOf`, rechaza página negativa, tamaño no positivo, total negativo o `totalPages` incoherente, y su factoría `of(...)` deriva `totalPages` con `Math.ceilDiv`. Tests: 7 de `ErrorResponse` y 12 de `PageResponse` (19 en verde). JaCoCo analiza 0 clases porque `**/dto/**` es una de las exclusiones de `PROJECT.md` §8, así que el gate pasa con `All coverage checks have been met.` y el informe se genera en `target/site/jacoco/index.html`. Verificación ejecutada: `./mvnw -B -ntp -pl libs/common-dto verify` y `./mvnw -B -ntp verify` en verde con el reactor completo (3/3 módulos).
 
 ## 5. Servicios Java (`api-gateway` y los cinco servicios)
 

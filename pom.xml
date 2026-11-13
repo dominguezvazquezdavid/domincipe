@@ -40,6 +40,7 @@
           creates its pom.xml: this one in task 3.1, libs/common-dto in 4.1 and the six
           applications in 5.1.
         -->
+        <module>libs/common-dto</module>
         <module>libs/common-observability</module>
     </modules>
 
