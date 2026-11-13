@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Shared operational library for the Domincipe services: request correlation here, plus the
+  auto-configuration every service inherits from task 3.2. Internal artifact: its version is
+  the parent's, declared once in the parent's dependencyManagement.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.domincipe</groupId>
+        <artifactId>domincipe-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>common-observability</artifactId>
+    <name>Common observability</name>
+    <description>Request correlation and shared operational defaults for the Domincipe services.</description>
+
+    <dependencies>
+        <!--
+          spring-boot-starter-webmvc, never spring-boot-starter-web: the 4.1.2 POM metadata of
+          the latter marks it "deprecated in favor of spring-boot-starter-webmvc" (verified).
+          This starter supplies OncePerRequestFilter, the servlet API and the MVC layer the
+          filter and its tests need.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!--
+          spring-boot-starter-test already brings spring-test (MockMvc), JUnit 5, AssertJ and
+          Mockito (verified in its 4.1.2 POM), so a dedicated MVC slice starter is not needed
+          for standalone MockMvc tests.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

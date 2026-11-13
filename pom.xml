@@ -35,10 +35,12 @@
 
     <modules>
         <!--
-          Empty on purpose. Maven aborts the reactor when a declared <module> has no
-          directory ("Child module ... does not exist", verified), so each module is
-          declared in the same commit that creates its pom.xml: tasks 3.1, 4.1 and 5.1.
+          Maven aborts the reactor when a declared <module> has no directory ("Child module ...
+          does not exist", verified), so every module is declared in the same commit that
+          creates its pom.xml: this one in task 3.1, libs/common-dto in 4.1 and the six
+          applications in 5.1.
         -->
+        <module>libs/common-observability</module>
     </modules>
 
     <properties>
