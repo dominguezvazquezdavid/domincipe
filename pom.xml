@@ -42,6 +42,12 @@
         -->
         <module>libs/common-dto</module>
         <module>libs/common-observability</module>
+        <module>apps/api-gateway</module>
+        <module>apps/services/auth-service</module>
+        <module>apps/services/user-service</module>
+        <module>apps/services/recipe-service</module>
+        <module>apps/services/media-service</module>
+        <module>apps/services/notification-service</module>
     </modules>
 
     <properties>

@@ -150,6 +150,14 @@ MinIO se descarta porque sus imágenes oficiales ya no se publican: `minio/minio
 
 *Verificado el 2026-11-12*: la imagen arranca en el puerto **7070** y responde **403** a las peticiones sin firmar; no expone `/health` ni `/metrics` por defecto, así que el healthcheck de Compose se define sobre esa respuesta y el aprovisionamiento del bucket pasa de `mc mb` a `aws s3api`. *Consecuencia:* las presigned URLs, que `media-service` necesita, deben validarse explícitamente en la tarea 7.x.
 
+### D14. Una propiedad repetida se declara una sola vez
+
+La tarea 5.1 deja una clase de test por servicio con `@SpringBootTest(properties = "app.environment=local")`, porque `APP_ENVIRONMENT` es obligatoria y no tiene valor por defecto. La repetición es aceptable mientras haya una sola clase por módulo, pero no escala: 5.2, 5.3 y 5.5 añaden varias clases por servicio. La regla, registrada en [PROJECT.md §7](../../../PROJECT.md), es que **toda propiedad de configuración que se repita entre módulos o clases se declara una sola vez**: en un fichero `.properties` cuando la repetición es de configuración y en una anotación compuesta compartida cuando la repetición está en anotaciones de test.
+
+La forma prevista es `libs/common-test-support` con `@DomincipeServiceTest`, una anotación meta-anotada con `@SpringBootTest` que aporta `app.environment=local` y replica `webEnvironment` con `@AliasFor`; los servicios la declaran en scope `test`. **Se implementa en la tarea 5.2**, no en 5.1, para diseñarla con los requisitos ya conocidos de 5.2 (entorno web real), 5.3 (caso sin la propiedad, que no puede usar la anotación tal cual) y 5.5 (documentación OpenAPI).
+
+*Verificado el 2026-11-13 con un módulo desechable:* una anotación compuesta sobre `@SpringBootTest` aplica sus propiedades a un test real, y un módulo que solo contiene la anotación deja el gate JaCoCo en verde (`Analyzed bundle ... with 0 classes` → `All coverage checks have been met.`), sin necesidad de `jacoco.skip` ni de exclusiones nuevas, por lo que D5 sigue cerrada.
+
 ## Risks / Trade-offs
 
 - **Deriva de versiones** (Spring Boot, imágenes base, Kafka) → se fija cada versión en una única property tras verificarla contra Maven Central y el registro de imágenes (tarea 1.2); ninguna versión se escribe por memoria.

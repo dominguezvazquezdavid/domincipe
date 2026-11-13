@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Media service: image uploads, presigned URLs and deletion against Versity S3 (PROJECT.md §5).
+  Skeleton only: no domain logic and no persistence yet (design D12).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.domincipe</groupId>
+        <artifactId>domincipe-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>media-service</artifactId>
+    <name>Media service</name>
+    <description>Image uploads, presigned URLs and deletion.</description>
+
+    <dependencies>
+        <!--
+          Shared operational behaviour (correlation id, actuator exposure, graceful shutdown and
+          the mandatory APP_ENVIRONMENT) registered as auto-configuration, so this module does
+          not scan the library package.
+        -->
+        <dependency>
+            <groupId>com.domincipe</groupId>
+            <artifactId>common-observability</artifactId>
+        </dependency>
+        <!--
+          Test dependencies are not transitive, so every service declares its own test starter
+          instead of relying on the one common-observability uses internally.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+              Executable jar through the repackage execution inherited from
+              spring-boot-starter-parent, plus the spring-boot:run goal the shared library
+              README documents as the way to start a service.
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

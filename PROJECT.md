@@ -147,6 +147,7 @@ Almacenamiento de objetos: **Versity S3 Gateway 1.11.0** (`versity/versitygw:v1.
 - **Rama por change**: cada change OpenSpec se implementa en su propia rama; el PR referencia el `change-id`.
 - **Package base**: `com.domincipe.<servicio>`.
 - **Configuración**: 100% por variables de entorno. `.env.example` versionado, `.env` ignorado.
+- **Propiedades repetidas**: toda propiedad de configuración que se repita en más de un módulo o clase se declara **una sola vez** en un fichero `.properties` (del módulo o compartido), nunca copiada en cada clase. En los tests, la forma prevista es una anotación compuesta compartida sobre `@SpringBootTest` (decisión D14 del change `project-skeleton`, tarea 5.2).
 
 ## 8. Testing
 
