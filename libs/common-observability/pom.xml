@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Shared operational library for the Domincipe services: request correlation here, plus the
-  auto-configuration every service inherits from task 3.2. Internal artifact: its version is
-  the parent's, declared once in the parent's dependencyManagement.
+  Shared operational library for the Domincipe services: request correlation plus the
+  auto-configuration every service inherits (actuator exposure, virtual threads, graceful
+  shutdown and the mandatory APP_ENVIRONMENT). Internal artifact: its version is the parent's,
+  declared once in the parent's dependencyManagement.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -30,6 +31,33 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!--
+          Actuator is a runtime feature of every service, so the library owns it instead of
+          repeating it six times. In 4.1.2 this starter brings spring-boot-health (probes), the
+          metrics autoconfiguration and, through it, the Prometheus scrape endpoint.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!--
+          Bean Validation: @Validated makes a missing or unknown APP_ENVIRONMENT fail the startup
+          with a message that names it, and this starter brings hibernate-validator plus the
+          jakarta.validation API the annotations compile against.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!--
+          The Prometheus scrape endpoint is conditional on PrometheusMeterRegistry, which only
+          this registry provides. Version managed by the micrometer-bom imported by
+          spring-boot-dependencies 4.1.2.
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <!--
           spring-boot-starter-test already brings spring-test (MockMvc), JUnit 5, AssertJ and
