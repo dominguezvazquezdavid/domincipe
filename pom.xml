@@ -58,6 +58,12 @@
         <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
         <jacoco-maven-plugin.version>0.8.16</jacoco-maven-plugin.version>
         <exec-maven-plugin.version>3.7.0</exec-maven-plugin.version>
+        <!--
+          Coverage gate from PROJECT.md §8, expressed as ratios because that is what
+          JaCoCo compares: 0.80 = 80% of lines and 0.70 = 70% of branches per module.
+        -->
+        <jacoco.line.minimum>0.80</jacoco.line.minimum>
+        <jacoco.branch.minimum>0.70</jacoco.branch.minimum>
     </properties>
 
     <dependencyManagement>
@@ -141,9 +147,16 @@
                 </plugin>
 
                 <!--
-                  The gate (0.80 lines / 0.70 branches plus the D5 exclusions) is added in task
-                  2.3 on top of this same configuration: here only the agent and the report
-                  are left, which cannot break the build while no module has tests.
+                  Coverage gate from PROJECT.md §8: 80% of lines and 70% of branches per
+                  module. Exclusions mirror the same section: Spring Boot entry points
+                  (*Application), DTOs (dto package) and MapStruct-generated code (*Impl).
+                  The same excludes feed the report, so the HTML shows exactly the classes
+                  the gate measures.
+                  No per-module jacoco.skip is needed for modules without analyzable
+                  classes: without an execution data file jacoco:check logs the skip and
+                  succeeds, and with data but zero classes after the exclusions the ratio
+                  is not computable and no limit is violated. Both cases were verified
+                  empirically in task 2.3 with a throwaway module.
                 -->
                 <plugin>
                     <groupId>org.jacoco</groupId>
@@ -162,6 +175,44 @@
                             <goals>
                                 <goal>report</goal>
                             </goals>
+                            <configuration>
+                                <excludes>
+                                    <exclude>**/*Application.class</exclude>
+                                    <exclude>**/dto/**</exclude>
+                                    <exclude>**/*Impl.class</exclude>
+                                </excludes>
+                            </configuration>
+                        </execution>
+                        <execution>
+                            <id>check</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                            <configuration>
+                                <excludes>
+                                    <exclude>**/*Application.class</exclude>
+                                    <exclude>**/dto/**</exclude>
+                                    <exclude>**/*Impl.class</exclude>
+                                </excludes>
+                                <rules>
+                                    <rule>
+                                        <element>BUNDLE</element>
+                                        <limits>
+                                            <limit>
+                                                <counter>LINE</counter>
+                                                <value>COVEREDRATIO</value>
+                                                <minimum>${jacoco.line.minimum}</minimum>
+                                            </limit>
+                                            <limit>
+                                                <counter>BRANCH</counter>
+                                                <value>COVEREDRATIO</value>
+                                                <minimum>${jacoco.branch.minimum}</minimum>
+                                            </limit>
+                                        </limits>
+                                    </rule>
+                                </rules>
+                            </configuration>
                         </execution>
                     </executions>
                 </plugin>
@@ -235,8 +286,13 @@
         <plugins>
             <!--
               Activated in the parent, so every module inherits them; their configuration
-              lives in pluginManagement to avoid duplication. jacoco is activated in task 2.3.
+              lives in pluginManagement to avoid duplication. jacoco binds prepare-agent,
+              report and check to every module build; check is the coverage gate.
             -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
