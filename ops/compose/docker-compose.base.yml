@@ -26,6 +26,10 @@ x-java-service: &java-service
     # Required by common-observability, which refuses to start when it is
     # missing or not one of local, dev or obs (design D8).
     APP_ENVIRONMENT: ${APP_ENVIRONMENT:-local}
+    # Forwarded so the documentation switch of .env reaches the container: an
+    # `environment` entry is not implicit, and without this line the README
+    # instruction to disable the API docs from .env would be a no-op.
+    APP_DOCS_ENABLED: ${APP_DOCS_ENABLED:-true}
   healthcheck:
     # Readiness rather than liveness: the container is only advertised as ready
     # once Spring has finished starting and can serve traffic.
