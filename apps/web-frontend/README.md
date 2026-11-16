@@ -7,6 +7,16 @@ shadcn/ui. Consume el `api-gateway`; no contiene hosts del backend codificados.
 
 - Node.js ≥ 22.22.0. El `.npmrc` local fija `engine-strict=true`, así que `npm ci`
   falla si la versión instalada no cumple el campo `engines` del `package.json`.
+- `VITE_API_BASE_URL` es obligatoria y única fuente de la URL del API.
+  `vite.config.ts` aborta cualquier comando que cargue la configuración de Vite
+  (`dev`, `build`, `test` y `test:coverage`) si no está definida. Se pasa por
+  entorno, o desde un `.env` de este paquete que no se versiona:
+
+```bash
+VITE_API_BASE_URL=http://localhost:8080 npm run dev
+VITE_API_BASE_URL=http://localhost:8080 npm run build
+VITE_API_BASE_URL=http://localhost:8080 npm test
+```
 
 ## Comandos
 
@@ -32,4 +42,6 @@ npm run preview        # sirve el bundle ya construido
   `src/test/setup.ts` carga los matchers de `@testing-library/jest-dom` y el
   *cleanup* de Testing Library.
 - La URL del API llega por entorno (`VITE_API_BASE_URL`), nunca embebida en el código.
+  `src/config/env.ts` es la única lectura de esa variable y `src/lib/api-client.ts`
+  construye todas las peticiones del cliente de datos sobre `env.apiBaseUrl`.
 
