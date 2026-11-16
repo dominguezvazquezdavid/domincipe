@@ -74,12 +74,12 @@ Las imágenes de la aplicación SHALL construirse en varias etapas, ejecutarse c
 
 ### Requirement: Apagado ordenado en el entorno local
 
-El entorno SHALL conceder a cada servicio un periodo de gracia configurable de al menos 30 segundos antes de forzar su terminación, de modo que las peticiones en curso se completen y el contenedor termine con código 0.
+El entorno SHALL conceder a cada servicio un periodo de gracia configurable de al menos 30 segundos antes de forzar su terminación, de modo que las peticiones en curso se completen y el contenedor termine por su camino de apagado normal: con código 0 o 143 (`128 + SIGTERM`), y nunca 137 (`128 + SIGKILL`), que indica que el periodo de gracia se agotó.
 
 #### Scenario: Parada con tráfico en curso
 
 - **WHEN** se ejecuta `docker compose stop` mientras un servicio atiende una petición
-- **THEN** la petición finaliza con su respuesta esperada y el contenedor registra código de salida 0
+- **THEN** la petición finaliza con su respuesta esperada y el contenedor registra código de salida 0 o 143, sin llegar a `SIGKILL`
 
 ### Requirement: Observabilidad siempre activa
 

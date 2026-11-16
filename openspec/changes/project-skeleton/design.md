@@ -160,6 +160,16 @@ La forma prevista es `libs/common-test-support` con `@DomincipeServiceTest`, una
 
 *Verificado el 2026-11-13 con un módulo desechable:* una anotación compuesta sobre `@SpringBootTest` aplica sus propiedades a un test real, y un módulo que solo contiene la anotación deja el gate JaCoCo en verde (`Analyzed bundle ... with 0 classes` → `All coverage checks have been met.`), sin necesidad de `jacoco.skip` ni de exclusiones nuevas, por lo que D5 sigue cerrada.
 
+### D19. El apagado ordenado se verifica con 0 o 143, nunca 137
+
+El contrato de apagado se cumplió con un `docker compose stop` real y una petición en curso, y la medición obligó a corregir las specs: **el JVM sale con 143 (`128 + SIGTERM`), no con 0**. Un proceso Java que atiende `SIGTERM` drena el contexto y termina por la señal, y Docker reporta ese 143; forzar el 0 exigiría un wrapper de entrypoint que reescribiera el código de salida, lo que además oculta si la parada fue externa. El código que delata un fallo de verdad es **137 (`128 + SIGKILL`)**: el periodo de gracia se agotó antes de que el drenaje terminase.
+
+Medido el 2026-11-16 con `scripts/verify-shutdown.sh`: `docker compose stop api-gateway` tarda ~3,3 s (tres ejecuciones consecutivas: 3321, 3302 y 3323 ms), la respuesta en curso llega completa (`HTTP 200`, 1 684 244 B de `swagger-ui-bundle.js`) y el contenedor figura con `ExitCode` 143; el log del servicio muestra `Commencing graceful shutdown. Waiting for active requests` y `Graceful shutdown complete` separados por esos ~3 s. `web-frontend` sí sale 0 porque su imagen fija `STOPSIGNAL=SIGQUIT` y nginx drena con esa señal; por eso el contrato se enuncia como «0 o 143».
+
+Dos detalles de la implementación, también medidos: la petición tiene que ir **directa a la IP del contenedor**, porque el *userland proxy* que Docker pone delante del puerto publicado bufferiza megabytes y el servicio no llega a bloquearse (el stop terminaba en ~0,4 s y truncaba la respuesta); y se envían **tres peticiones pipelineadas** del bundle de Swagger UI, el mayor recurso sin endpoints de negocio (1,68 MB), para que la primera siga escribiéndose cuando llega `SIGTERM`. Las peticiones pipelineadas que Tomcat no llegó a despachar se cierran con la conexión al terminar el drenaje: es el comportamiento normal de HTTP/1.1 y no se exige respuesta para ellas; lo que nunca se acepta es un cuerpo incompleto.
+
+*Alternativas descartadas:* exigir 0 (mentira sobre la causa de la terminación, más un wrapper como PID 1 con su propia clase de fallos de *signal forwarding*), aceptar también 137 (taparía el único fallo real) y verificar solo `web-frontend` (no ejercitaría el drenaje de Spring, que es el requisito de `service-runtime`).
+
 ## Risks / Trade-offs
 
 - **Deriva de versiones** (Spring Boot, imágenes base, Kafka) → se fija cada versión en una única property tras verificarla contra Maven Central y el registro de imágenes (tarea 1.2); ninguna versión se escribe por memoria.

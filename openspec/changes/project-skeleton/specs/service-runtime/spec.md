@@ -45,12 +45,12 @@ Toda configuración SHALL resolverse desde variables de entorno; una variable ob
 
 ### Requirement: Apagado ordenado
 
-Cada servicio SHALL apagarse de forma ordenada: al recibir `SIGTERM` deja de aceptar peticiones nuevas, completa las que están en curso dentro de un tiempo configurable por entorno y termina con código 0.
+Cada servicio SHALL apagarse de forma ordenada: al recibir `SIGTERM` deja de aceptar peticiones nuevas, completa las que están en curso dentro de un tiempo configurable por entorno y termina por su camino de apagado normal. El proceso MUST NOT ser terminado por `SIGKILL` dentro de la ventana de drenaje: el código de salida SHALL ser `0` o `143` (`128 + SIGTERM`, el estándar de un proceso que atiende la señal), y `137` (`128 + SIGKILL`) SHALL considerarse un fallo del periodo de gracia.
 
 #### Scenario: Petición en curso durante el apagado
 
 - **WHEN** se envía `SIGTERM` a un servicio mientras atiende una petición
-- **THEN** la petición en curso finaliza con la respuesta esperada y el proceso termina con código 0
+- **THEN** la petición en curso finaliza con la respuesta esperada, el proceso termina con código 0 o 143 y no recibe `SIGKILL`
 
 #### Scenario: Tiempo de apagado configurable
 
