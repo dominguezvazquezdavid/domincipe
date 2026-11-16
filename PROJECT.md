@@ -177,7 +177,7 @@ Imágenes base de los Dockerfiles verificadas el 2026-11-16 en el registro de Do
 **v1 = local Docker Compose**, con perfil cloud-like:
 
 - `ops/compose/docker-compose.base.yml` — servicios, datos, salud, redes, límites.
-- `ops/compose/docker-compose.dev.yml` — override para desarrollo local (hot reload, puertos expuestos).
+- `ops/compose/docker-compose.dev.yml` — override para desarrollo local: puertos publicados en el host y volúmenes persistentes de datos. El **hot reload del frontend** se ejecuta en el host (`VITE_API_BASE_URL=http://localhost:8080 npm run dev`); Compose sirve siempre el bundle inmutable de nginx.
 - `ops/compose/docker-compose.obs.yml` — pila de observabilidad (Prometheus, Grafana, Kafka UI), **siempre activa**.
 
 El comando canónico es `docker compose up --wait` desde la raíz: `.env` declara `COMPOSE_FILE` con los tres ficheros, de modo que la observabilidad se levanta siempre. Para arrancar sin ella (equipos con pocos recursos) se pasan `-f` explícitos sobre `base` y `dev`.
