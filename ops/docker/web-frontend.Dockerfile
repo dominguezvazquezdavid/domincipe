@@ -23,7 +23,13 @@ RUN npm run build
 # the SPA routing rules are added.
 FROM nginxinc/nginx-unprivileged:1.30.6-alpine AS runtime
 
+# Short git SHA injected by scripts/build-images.sh and recorded as the OCI
+# revision label, so a running image can be traced back to its commit (D11).
+ARG GIT_SHA
+
 COPY --from=build /workspace/apps/web-frontend/dist /usr/share/nginx/html
 COPY ops/docker/nginx.conf /etc/nginx/conf.d/default.conf
+
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
 
 EXPOSE 8080

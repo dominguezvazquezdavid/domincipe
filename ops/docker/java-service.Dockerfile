@@ -30,6 +30,11 @@ FROM eclipse-temurin:21.0.13_9-jre-alpine AS runtime
 
 ARG MODULE
 
+# Short git SHA injected by scripts/build-images.sh. It is metadata only: it
+# lands in the OCI revision label so a running image can be traced back to the
+# commit it was built from (design D11).
+ARG GIT_SHA
+
 # Fixed non-root identity shared by every environment, so volume permissions and
 # Kubernetes securityContexts can rely on it.
 RUN addgroup -S -g 10001 domincipe \
@@ -37,6 +42,8 @@ RUN addgroup -S -g 10001 domincipe \
 
 WORKDIR /app
 COPY --from=build /workspace/${MODULE}/target/*.jar /app/app.jar
+
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
 
 # Configuration stays in the environment (12-factor). JAVA_TOOL_OPTIONS is read
 # by the JVM itself, so Compose and Kubernetes can tune it without a shell
