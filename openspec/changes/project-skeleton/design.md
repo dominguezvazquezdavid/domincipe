@@ -180,8 +180,9 @@ No hay migración de datos ni compatibilidad que preservar: el repositorio no ti
 
 ## Open Questions
 
-- **Cerrada en la tarea 1.2 (2026-11-12)**: Spring Boot **4.1.2**, springdoc-openapi **3.2.0**, `apache/kafka:4.4.0` y `versity/versitygw:v1.11.0`, verificados en Maven Central, la documentación de springdoc, Docker Hub y el arranque real de la imagen S3. Se descartó Spring Boot 3.5.16 (última de la línea 3.x) por estar fuera de soporte OSS desde el 2026-06-30, y con ella springdoc 2.10.0; MinIO se descartó porque ya no publica imágenes oficiales. El cambio obligó a actualizar este design, `proposal.md`, `tasks.md`, `PROJECT.md` §4 y `AGENTS.md`. Sigue abierta la versión exacta de las imágenes base, que se fija en la tarea 7.1.
+- **Cerrada en la tarea 1.2 (2026-11-12)**: Spring Boot **4.1.2**, springdoc-openapi **3.2.0**, `apache/kafka:4.4.0` y `versity/versitygw:v1.11.0`, verificados en Maven Central, la documentación de springdoc, Docker Hub y el arranque real de la imagen S3. Se descartó Spring Boot 3.5.16 (última de la línea 3.x) por estar fuera de soporte OSS desde el 2026-06-30, y con ella springdoc 2.10.0; MinIO se descartó porque ya no publica imágenes oficiales. El cambio obligó a actualizar este design, `proposal.md`, `tasks.md`, `PROJECT.md` §4 y `AGENTS.md`.
 - **Toolchain del frontend (2026-11-12)**: React 19.3.1, Vite 8.3.8, TypeScript 5.9.3, ESLint 10.14.0 con `typescript-eslint` 8.72.2, Tailwind 4.3.5, React Router 8.5.1, TanStack Query 5.107.1, Vitest 5.1.0 y Node ≥ 22.22.0. TypeScript 7.0.2 queda descartado porque `typescript-eslint` 8.72.2 solo admite `<6.1.0`.
+- **Cerrada en la tarea 7.1 (2026-11-16)**: imágenes base fijadas tras verificar los tags en el registro de Docker Hub — `maven:3.9.16-eclipse-temurin-21-alpine`, `eclipse-temurin:21.0.13_9-jre-alpine`, `node:22.23.5-alpine` y `nginxinc/nginx-unprivileged:1.30.6-alpine` — y registradas en `PROJECT.md` §4.
 - **Remitente por defecto de Mailpit** (`MAIL_FROM`): se elige un placeholder en `.env.example`; no afecta a ningún requisito de este change.
 
 

@@ -85,6 +85,8 @@ Versiones del frontend verificadas el 2026-11-12 en el registro de npm: React **
 
 Almacenamiento de objetos: **Versity S3 Gateway 1.11.0** (`versity/versitygw:v1.11.0`, digest `sha256:8319a530…`) verificado el 2026-11-12; MinIO se descarta porque sus imágenes oficiales ya no se publican (Docker Hub 404, Quay y ghcr sin manifiesto) y su último release upstream es de octubre de 2025. Toolchain local: Temurin **21.0.13+9** y Maven **3.9.16**.
 
+Imágenes base de los Dockerfiles verificadas el 2026-11-16 en el registro de Docker Hub: `maven:3.9.16-eclipse-temurin-21-alpine` (coincide con el Maven del wrapper), `eclipse-temurin:21.0.13_9-jre-alpine` (coincide con el Temurin local), `node:22.23.5-alpine` (cumple el mínimo 22.22.0 del frontend; la 22.24.0 aún no existe) y `nginxinc/nginx-unprivileged:1.30.6-alpine` (línea estable, UID 101 y puerto 8080).
+
 ## 5. Bounded contexts (servicios y responsabilidades)
 
 | Servicio | Responsabilidad | BD | Topics Kafka |
