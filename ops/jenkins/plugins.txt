@@ -9,7 +9,10 @@
 # cannot keep.
 #
 # Requested directly: configuration-as-code, credentials-binding, git,
-# github-branch-source, jacoco, junit and workflow-aggregator. Raise a version
+# github-branch-source, jacoco, job-dsl, junit and workflow-aggregator.
+# `job-dsl` is not optional: JCasC's `items` root element has no
+# ItemConfigurator for multibranch projects, so the job of task 4.2 is declared
+# through the Job DSL extension (`jobs:` in casc/jenkins.yaml). Raise a version
 # here only; nothing else installs plugins.
 #
 # Format accepted by `jenkins-plugin-cli --plugin-file`: <name>:<version>
@@ -49,6 +52,7 @@ jakarta-xml-bind-api:4.0.9-19.v2b_a_5b_44d9a_1c
 javax-activation-api:1.2.0-8
 jaxb:2.3.9-143.v5979df3304e6
 jjwt-api:0.13.0-141.vd58b_a_9592b_6c
+job-dsl:3752.vb_199526b_20c3
 joda-time-api:2.15.1-211.ve499f52b_da_33
 jquery3-api:3.7.1-687.v68d468e40b_30
 json-api:20260814-226.v20f9685d642c

@@ -71,6 +71,15 @@ services:
       # 9090, 3000, 7070, 8025, 1025 and 29092, and 8090 is taken by a container
       # outside this project on the development host (design D11).
       - "${JENKINS_PORT:-8095}:8080"
+    environment:
+      # JCasC applies every file under this directory on boot (design D6). The
+      # directory is a read-only bind mount of the versioned configuration, so
+      # the controller cannot rewrite it.
+      CASC_JENKINS_CONFIG: /var/jenkins_home/casc
+      # The credential value travels by reference only: JCasC writes
+      # `github-token` from this variable and git never holds it (design D6).
+      # Empty is a valid cold-clone state; task 4.4 brings the PAT.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     volumes:
       # Same socket volume as the builder: the client side of design D2.
       - buildkit-run:/run/user/1000
@@ -81,6 +90,8 @@ services:
       # Controller state: jobs, credentials and the plugin store that makes
       # `down -v` + `up` reproducible (design D6).
       - jenkins-home:/var/jenkins_home
+      # Versioned controller configuration, read-only bind mount (design D6).
+      - ./casc:/var/jenkins_home/casc:ro
       # Toolchain caches, separate volumes so wiping one does not wipe the
       # other. The Dockerfile pre-creates these paths as the jenkins user
       # because Docker only copies ownership into a volume when the path exists

@@ -159,6 +159,8 @@ Los *plugins* se declaran en `ops/jenkins/plugins.txt` con versión exacta y se 
 
 *Credenciales:* JCasC solo declara la **referencia** a la credencial (`github-token`), nunca el valor; el secreto entra por variable de entorno del stack de CI, fuera de git.
 
+*Jobs:* la raíz `items:` de JCasC no puede declarar el proyecto multibranch —comprobado el 2026-11-17 contra la instancia real: `POST /configuration-as-code/check` responde `No ItemConfigurator found for type: multibranch` (y también para `pipeline`)—, así que el job se declara con la extensión `jobs:` del plugin **Job DSL** (`job-dsl`, fijado en `plugins.txt`), que es la integración documentada por JCasC para crear jobs. La estrategia de *items* huérfanos va en ese mismo bloque (tarea 4.1) y el *branch source*, en la 4.2. El fichero `casc/jenkins.yaml` se monta en solo lectura y se aplica con `CASC_JENKINS_CONFIG`; `GITHUB_TOKEN` llega por variable de entorno con default vacío para que un clon en frío arranque sin PAT.
+
 ### D7. Multibranch contra GitHub y estado en el commit
 
 Job multibranch con *GitHub Branch Source*, que descubre ramas y PRs y reporta el estado del build al commit. La credencial de D6 se consume siempre con `withCredentials`, que enmascara el valor en el log.
