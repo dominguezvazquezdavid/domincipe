@@ -1,4 +1,4 @@
-# --- Secretos y configuración local (12-factor: sólo .env.example se versiona) ---
+# --- Secrets and local configuration (12-factor: only .env.example is versioned) ---
 .env
 .env.local
 .env.*.local
@@ -26,7 +26,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# --- Cobertura y artefactos de test ---
+# --- Coverage and test artifacts ---
 coverage/
 lcov.info
 test-results/
@@ -34,7 +34,7 @@ playwright-report/
 blob-report/
 playwright/.cache/
 
-# --- IDE / editores (cada uno con su configuración local) ---
+# --- IDE / editors (each one with its own local configuration) ---
 .idea/
 *.iml
 *.ipr
@@ -48,12 +48,12 @@ playwright/.cache/
 *.swp
 *~
 
-# --- Sistema operativo ---
+# --- Operating system ---
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# --- Volúmenes y temporales de Docker/Compose ---
+# --- Docker/Compose volumes and temporary files ---
 ops/compose/.volumes/
 *.pid
 *.log

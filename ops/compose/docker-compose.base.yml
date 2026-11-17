@@ -1,0 +1,378 @@
+# Base layer of the local environment (design D9): services, dependencies,
+# healthchecks, networks and resource limits. docker-compose.dev.yml adds the
+# published ports and the persistent volumes; docker-compose.obs.yml adds the
+# observability stack.
+#
+# No container waits with a fixed delay: one starts only when the container it
+# depends on is healthy (long-running) or has provisioned its data successfully
+# (one-shot init containers). Both the project name and the service names are
+# fixed so the verification scripts can resolve them.
+
+name: domincipe
+
+# Same client and server version: the init container opens the psql session with
+# the image that runs PostgreSQL itself.
+x-postgres-image: &postgres-image postgres:16.16-alpine
+# Creating the bucket with the official CLI is the flow documented for Versity
+# (design D9/D18).
+x-aws-cli-image: &aws-cli-image amazon/aws-cli:2.40.3
+
+# Shared block for the six Java applications: same environment contract, same
+# probe, same grace period and same limits. Only the image and the dependencies
+# differ from one service to the next.
+x-java-service: &java-service
+  restart: unless-stopped
+  environment:
+    # Required by common-observability, which refuses to start when it is
+    # missing or not one of local, dev or obs (design D8).
+    APP_ENVIRONMENT: ${APP_ENVIRONMENT:-local}
+    # Forwarded so the documentation switch of .env reaches the container: an
+    # `environment` entry is not implicit, and without this line the README
+    # instruction to disable the API docs from .env would be a no-op.
+    APP_DOCS_ENABLED: ${APP_DOCS_ENABLED:-true}
+  healthcheck:
+    # Readiness rather than liveness: the container is only advertised as ready
+    # once Spring has finished starting and can serve traffic.
+    test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/actuator/health/readiness || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 40s
+  # Above spring.lifecycle.timeout-per-shutdown-phase (30s in
+  # observability-defaults.properties) so Docker never sends SIGKILL in the
+  # middle of a drain.
+  stop_grace_period: ${APP_STOP_GRACE_PERIOD:-40s}
+  networks:
+    - backend-net
+    - obs-net
+  deploy:
+    resources:
+      limits:
+        cpus: "1.0"
+        memory: 512M
+
+services:
+  postgres:
+    image: *postgres-image
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-domincipe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-domincipe}
+      POSTGRES_DB: ${POSTGRES_DB:-domincipe}
+    healthcheck:
+      # "$$" keeps the variable for the shell inside the container instead of
+      # resolving it at Compose parse time.
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 30s
+    networks:
+      - backend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  # One schema per service (PROJECT.md §5). IF NOT EXISTS makes the container
+  # safe to run again on every `docker compose up`.
+  postgres-init:
+    image: *postgres-image
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-domincipe}
+    entrypoint: ["psql"]
+    command:
+      - --set=ON_ERROR_STOP=1
+      # Without an explicit host psql would try the local socket of the init
+      # container itself, not the server.
+      - --host=postgres
+      - --username=${POSTGRES_USER:-domincipe}
+      - --dbname=${POSTGRES_DB:-domincipe}
+      # -c and its SQL are two arguments; without the flag psql treats the
+      # statement as an extra positional argument and ignores it.
+      - -c
+      - >-
+        CREATE SCHEMA IF NOT EXISTS auth;
+        CREATE SCHEMA IF NOT EXISTS users;
+        CREATE SCHEMA IF NOT EXISTS recipes;
+        CREATE SCHEMA IF NOT EXISTS media;
+        CREATE SCHEMA IF NOT EXISTS notifications;
+    networks:
+      - backend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+  # Single combined-mode KRaft node: no ZooKeeper, which is what Kafka 4.x
+  # supports (PROJECT.md §4). Every value below is a required KRaft property; the
+  # image fills the rest from its own server.properties template.
+  kafka:
+    image: ${KAFKA_IMAGE:-apache/kafka:4.4.0}
+    restart: unless-stopped
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-5L6g3nShT-eMCtK--X86sw}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # Clients reach the broker as "kafka", the DNS name Compose gives the
+      # container inside backend-net.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # The image ships this path owned by appuser, so the dev override can mount
+      # a named volume on it without a permission fix-up.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    healthcheck:
+      # A real metadata request instead of a raw TCP probe: the broker is healthy
+      # only when it answers the API.
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 40s
+    stop_grace_period: 30s
+    networks:
+      - backend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+  # Topics of the event contract (PROJECT.md §5). --if-not-exists keeps the
+  # container idempotent, so a restart never fails on an existing topic.
+  kafka-init:
+    image: ${KAFKA_IMAGE:-apache/kafka:4.4.0}
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        for topic in \
+          user.registered \
+          user.updated \
+          recipe.created \
+          recipe.updated \
+          recipe.deleted \
+          media.uploaded; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+            --create --if-not-exists --topic "$${topic}" \
+            --partitions ${KAFKA_TOPIC_PARTITIONS:-3} --replication-factor 1
+        done
+    networks:
+      - backend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  # S3 over POSIX: one container, the bucket data on a volume and the root
+  # credentials in the environment (design D18). /health is the documented
+  # --health endpoint, verified returning 200; without the flag the gateway has
+  # no health route and the check would have to rely on a 403.
+  versity:
+    image: ${S3_IMAGE:-versity/versitygw:v1.11.0}
+    restart: unless-stopped
+    environment:
+      ROOT_ACCESS_KEY: ${S3_ROOT_USER:-domincipe}
+      ROOT_SECRET_KEY: ${S3_ROOT_PASSWORD:-domincipe-secret}
+      VGW_BACKEND: posix
+      VGW_BACKEND_ARG: /data
+      VGW_HEALTH: /health
+    # The POSIX backend refuses to start when its root directory does not exist,
+    # and the base layer mounts no volumes (persistence belongs to the dev
+    # override). Creating it here keeps the layer self-contained and leaves /data
+    # free for the dev volume to be mounted over it.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - mkdir -p /data && exec /usr/local/bin/docker-entrypoint.sh
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7070/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    stop_grace_period: 10s
+    networks:
+      - backend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # head-bucket first: create-bucket answers BucketAlreadyOwnedByYou (exit 254)
+  # when the bucket exists, so the guard is what makes a restart succeed.
+  versity-init:
+    image: *aws-cli-image
+    restart: "no"
+    depends_on:
+      versity:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ROOT_USER:-domincipe}
+      AWS_SECRET_ACCESS_KEY: ${S3_ROOT_PASSWORD:-domincipe-secret}
+      AWS_DEFAULT_REGION: ${S3_REGION:-us-east-1}
+      AWS_EC2_METADATA_DISABLED: "true"
+      BUCKET: ${MEDIA_BUCKET:-domincipe-media}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        if aws --endpoint-url http://versity:7070 s3api head-bucket --bucket "$${BUCKET}" >/dev/null 2>&1; then
+          echo "versity-init: bucket $${BUCKET} already exists"
+        else
+          aws --endpoint-url http://versity:7070 s3api create-bucket --bucket "$${BUCKET}"
+        fi
+    networks:
+      - backend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  mailpit:
+    image: axllent/mailpit:v1.33.1
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: 5000
+    healthcheck:
+      # The binary ships its own probe: it queries /readyz over the UI port.
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    stop_grace_period: 10s
+    networks:
+      - backend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+  # The five domain services use the shared block above. Their dependencies
+  # encode the contract of PROJECT.md §5 (schema, topics, objects, email) even
+  # though this change wires no data access yet (design D12): the ordering is
+  # part of the environment, not of the application code.
+  auth-service:
+    <<: *java-service
+    image: domincipe/auth-service:${APP_IMAGE_TAG:-latest}
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
+
+  user-service:
+    <<: *java-service
+    image: domincipe/user-service:${APP_IMAGE_TAG:-latest}
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  recipe-service:
+    <<: *java-service
+    image: domincipe/recipe-service:${APP_IMAGE_TAG:-latest}
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+
+  media-service:
+    <<: *java-service
+    image: domincipe/media-service:${APP_IMAGE_TAG:-latest}
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      versity-init:
+        condition: service_completed_successfully
+
+  notification-service:
+    <<: *java-service
+    image: domincipe/notification-service:${APP_IMAGE_TAG:-latest}
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
+
+  # The only service on both application networks: it bridges the frontend and
+  # the backend, which is what keeps postgres unreachable from web-frontend
+  # (design D10).
+  api-gateway:
+    <<: *java-service
+    image: domincipe/api-gateway:${APP_IMAGE_TAG:-latest}
+    networks:
+      - frontend-net
+      - backend-net
+      - obs-net
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      recipe-service:
+        condition: service_healthy
+      media-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+
+  # Serves the bundle built by ops/docker/web-frontend.Dockerfile, so it never
+  # installs dependencies at runtime (design D10).
+  web-frontend:
+    image: domincipe/web-frontend:${APP_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1 instead of localhost: inside the container localhost resolves to
+      # ::1 first, the unprivileged nginx listens on IPv4 only (listen 8080) and
+      # the BusyBox wget does not retry the second address, so the probe failed
+      # with "connection refused" while the site answered on 8080 (measured).
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    stop_grace_period: 10s
+    networks:
+      - frontend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+
+# frontend-net is deliberately not internal: the Vite dev server has to reach the
+# npm registry (design D10). The isolation comes from membership, not from a
+# firewall, and becomes a real NetworkPolicy in Kubernetes (PROJECT.md §10).
+networks:
+  frontend-net:
+  backend-net:
+  obs-net:
+
+

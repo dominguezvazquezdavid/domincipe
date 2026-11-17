@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Shared DTO library for the Domincipe services: the error envelope and the pagination
+  envelope every HTTP contract reuses. Internal artifact: its version is the parent's,
+  declared once in the parent's dependencyManagement.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.domincipe</groupId>
+        <artifactId>domincipe-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>common-dto</artifactId>
+    <name>Common DTO</name>
+    <description>Shared error and pagination envelopes for the Domincipe services.</description>
+
+    <dependencies>
+        <!--
+          Plain records with no Spring or Jackson dependency: the library only defines the
+          contract, while each service serialises it with its own web stack. JUnit 5, AssertJ
+          and Mockito come from spring-boot-starter-test, as in common-observability.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE module PUBLIC
+          "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+          "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<!--
+  Domincipe style rules.
+  References: PROJECT.md §8 (lint as part of the Definition of Done) and
+  PROJECT.md §7 (conventions). What this file guarantees in a verifiable
+  way: packages under com.domincipe, 120 columns, no star imports and no
+  unused imports.
+
+  Mandatory Javadoc and license headers are NOT enforced yet: they will be
+  enabled once the first domain code exists, so the project-skeleton change
+  is not blocked.
+-->
+<module name="Checker">
+    <property name="charset" value="UTF-8"/>
+    <property name="severity" value="error"/>
+    <property name="fileExtensions" value="java"/>
+
+    <module name="NewlineAtEndOfFile"/>
+    <module name="FileTabCharacter">
+        <property name="eachLine" value="true"/>
+    </module>
+    <module name="LineLength">
+        <property name="max" value="120"/>
+        <property name="ignorePattern" value="^package.*|^import.*|^ \* *https?://"/>
+    </module>
+
+    <module name="TreeWalker">
+        <!-- Project base package: com.domincipe.<service> -->
+        <module name="PackageName">
+            <property name="format" value="^com\.domincipe(\.[a-z][a-z0-9]*)*$"/>
+        </module>
+        <module name="AvoidStarImport"/>
+        <module name="UnusedImports"/>
+        <module name="RedundantImport"/>
+        <module name="IllegalImport">
+            <property name="illegalPkgs" value="sun, com.sun, jdk.internal"/>
+        </module>
+
+        <!-- Structure and readability -->
+        <module name="NeedBraces"/>
+        <module name="LeftCurly"/>
+        <module name="RightCurly"/>
+        <module name="WhitespaceAround"/>
+        <module name="OneStatementPerLine"/>
+        <module name="MultipleVariableDeclarations"/>
+        <module name="ModifierOrder"/>
+        <module name="UpperEll"/>
+
+        <!-- Common silent bugs -->
+        <module name="EqualsHashCode"/>
+        <module name="StringLiteralEquality"/>
+        <module name="MissingSwitchDefault"/>
+        <module name="FallThrough"/>
+        <module name="SimplifyBooleanExpression"/>
+        <module name="SimplifyBooleanReturn"/>
+        <module name="EmptyCatchBlock">
+            <property name="exceptionVariableName" value="expected|ignored"/>
+        </module>
+    </module>
+</module>

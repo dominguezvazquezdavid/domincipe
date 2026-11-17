@@ -1,0 +1,24 @@
+# End-of-line normalisation for the whole team, independent of each machine's
+# core.autocrlf. Without this file, a Windows clone with core.autocrlf=true
+# would rewrite the `mvnw.cmd` line on every commit.
+# Consistent with .editorconfig, which declares LF by default.
+* text=auto eol=lf
+
+# cmd.exe expects CRLF in batch scripts. In gitattributes the last matching
+# rule wins, so these override the one above: the blob is stored in LF and
+# checked out in CRLF, which is the format the wrapper plugin generates and
+# the one Windows expects.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binaries: keep git from normalising them or showing them in diffs.
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.pdf binary

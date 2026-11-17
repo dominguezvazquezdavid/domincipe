@@ -1,0 +1,21 @@
+# Trim the build context to what the Docker stages copy: Git history, local
+# build output and the SDD artifacts are never needed inside an image.
+
+.git
+.idea
+.vscode
+
+# Local build output of every tool.
+**/target
+**/node_modules
+apps/web-frontend/dist
+apps/web-frontend/coverage
+coverage
+tmp
+*.log
+
+# Documentation and change tracking live in the repository, not in the images.
+openspec
+
+# Compose data volumes (task 7.4) must never reach a build.
+ops/compose/.volumes

@@ -46,7 +46,7 @@ El frontend SHALL obtener la URL base del API exclusivamente de la variable de e
 
 ### Requirement: Arranque de la SPA con sus proveedores
 
-La aplicación SHALL arrancar con el enrutador de React Router v7 y el cliente de datos de TanStack Query inicializados, mostrando una ruta inicial con un estado vacío explícito y sin errores en consola.
+La aplicación SHALL arrancar con el enrutador de React Router v8 y el cliente de datos de TanStack Query inicializados, mostrando una ruta inicial con un estado vacío explícito y sin errores en consola.
 
 #### Scenario: Renderizado inicial
 

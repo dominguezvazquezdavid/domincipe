@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Shared test support for the Domincipe services: the composite @DomincipeServiceTest
+  annotation and the runtime contract every service must honour, declared once instead of
+  copied into six modules (PROJECT.md §7, decision D14 of the project-skeleton change).
+  Internal artifact: its version is the parent's, declared in the parent's dependencyManagement.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.domincipe</groupId>
+        <artifactId>domincipe-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>common-test-support</artifactId>
+    <name>Common test support</name>
+    <description>Shared test annotation and runtime contract for the Domincipe services.</description>
+
+    <dependencies>
+        <!--
+          The annotation is built on @SpringBootTest and the contract runs JUnit 5 + AssertJ,
+          so the starter is a compile dependency here. Every service declares this artifact in
+          test scope, which turns these into test-scope dependencies for the service.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+        </dependency>
+        <!--
+          The probe controller that proves springdoc documents a new route without extra
+          configuration is a @RestController, which needs the web annotations. As with the test
+          starter, every service consumes this module in test scope only.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+    </dependencies>
+</project>

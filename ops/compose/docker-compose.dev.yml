@@ -1,0 +1,87 @@
+# Development override of the local environment (design D9): the host ports that
+# the tools living outside Compose need, and the persistent volumes that keep the
+# state across restarts.
+#
+# It is layered on top of docker-compose.base.yml, so every service defined here
+# inherits the healthchecks, dependencies, limits and networks of the base layer.
+# Only this file publishes ports: the base layer never competes for a host port.
+
+services:
+  # Named volumes instead of bind mounts: Docker initialises a named volume with
+  # the ownership of the path it covers in the image, so the non-root users of
+  # the images can write to it. A bind mount would arrive owned by root and need
+  # a permission fix-up on every fresh checkout.
+  postgres:
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  kafka:
+    # Host clients cannot reuse the advertised listener of the base layer: the
+    # broker answers with "kafka:9092", a name that only resolves inside
+    # backend-net. This layer adds a second listener advertised as
+    # localhost:29092 for the tools running on the host, and keeps the internal
+    # one untouched so the services and kafka-init still resolve the broker by
+    # its DNS name.
+    environment:
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+    ports:
+      - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  # The bucket data, which is what the POSIX backend of Versity stores on /data.
+  versity:
+    ports:
+      - "7070:7070"
+    volumes:
+      - versity-data:/data
+
+  # SMTP port and UI/API port (PROJECT.md §4). No volume on purpose: Mailpit is a
+  # throwaway mailbox and the messages in it are test data.
+  mailpit:
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  # One host port per service, in the order of the bounded contexts
+  # (PROJECT.md §5). Every container listens on 8080, so only the host side
+  # changes and no image needs to be rebuilt for a different port.
+  auth-service:
+    ports:
+      - "8081:8080"
+
+  user-service:
+    ports:
+      - "8082:8080"
+
+  recipe-service:
+    ports:
+      - "8083:8080"
+
+  media-service:
+    ports:
+      - "8084:8080"
+
+  notification-service:
+    ports:
+      - "8085:8080"
+
+  # 8080 on the host is the endpoint the bundle is built against: web-frontend
+  # ships with VITE_API_BASE_URL=http://localhost:8080 by default
+  # (scripts/build-images.sh), so the gateway is the one that keeps that port.
+  api-gateway:
+    ports:
+      - "8080:8080"
+
+  web-frontend:
+    ports:
+      - "8086:8080"
+
+volumes:
+  postgres-data:
+  kafka-data:
+  versity-data:

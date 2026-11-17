@@ -1,0 +1,14 @@
+# Environment-independent configuration only. Anything that differs between local, dev and obs
+# comes from environment variables (PROJECT.md §7), never from this file.
+spring:
+  application:
+    name: api-gateway
+    # Filled by Maven resource filtering (@ delimiters) from the module version; the OpenAPI
+    # document takes its version from here (design D16).
+    version: @project.version@
+
+# Correlation id of the in-flight request, published in the MDC by common-observability.
+# The empty default keeps the token harmless when a log line is written outside a request.
+logging:
+  pattern:
+    correlation: "[requestId=%X{requestId:-}] "

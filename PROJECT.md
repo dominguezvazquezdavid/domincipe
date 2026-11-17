@@ -16,7 +16,7 @@
 
 ## 2. Metodología: SDD + OpenSpec
 
-Trabajamos con **Spec-Driven Development (SDD)** orquestado por **OpenSpec** (`@fission-ai/openspec`, versión **1.17.0**, binario `openspec`, licencia MIT, repositorio `Fission-AI/OpenSpec`).
+Trabajamos con **Spec-Driven Development (SDD)** orquestado por **OpenSpec** (`@fission-ai/openspec`, versión **2.0.0**, binario `openspec`, licencia MIT, repositorio `Fission-AI/OpenSpec`).
 
 - La **spec es el contrato**: primero se escribe, se revisa y se aprueba; después se implementa.
 - Cada cambio vive en `openspec/changes/<id>/` con:
@@ -24,7 +24,7 @@ Trabajamos con **Spec-Driven Development (SDD)** orquestado por **OpenSpec** (`@
   - `specs/` → requirements y scenarios (`## ADDED Requirements`, `#### Scenario:`).
   - `design.md` → cómo se hará (decisiones técnicas).
   - `tasks.md` → checklist ejecutable.
-- El ciclo se opera con los *workflows* de OpenSpec: `explore`, `propose`, `apply`, `archive` (y opcionales `update`, `sync`, `verify`, `bulk-archive`). Invocación según herramienta: en Continue se escriben como `/opsx-apply`; en Claude Code, `/opsx:apply`.
+- El ciclo (`explore` → `propose` → `apply` → `archive`) se opera con las *skills* de OpenSpec. La operativa de la herramienta —invocación, workflows y CLI— es contexto del agente y vive en `AGENTS.md` §8.
 - Al cerrarse, el change se mueve a `openspec/changes/archive/<fecha>-<change>/` y la spec "as-built" se consolida en `openspec/specs/`.
 - La configuración del proyecto (contexto para la IA + schema) vive en **`openspec/config.yaml`** con schema `spec-driven`. **No** usamos `openspec/project.md`: es un formato legacy en esta versión (el `init` no lo crea y propone migrarlo a `config.yaml`).
 - **Nada se implementa sin un change aprobado por el usuario.**
@@ -41,12 +41,12 @@ web-frontend (React) ──► api-gateway ──┬─► auth-service
                                                 notification-service (consumer)
 
 Persistencia:
-  - PostgreSQL 16 (database-per-service)
-  - MinIO (S3-compatible, imágenes de recetas)
-  - MailHog (SMTP fake para email)
+  - PostgreSQL 16.16 (database-per-service)
+  - Versity S3 Gateway (S3-compatible sobre POSIX, imágenes de recetas)
+  - Mailpit (SMTP fake para email, con UI web y API)
 
 Observabilidad (siempre activa en local):
-  - Prometheus + Grafana + Kafka UI
+  - Prometheus + Grafana + Kafka UI (imagen `kafbat/kafka-ui`)
   - Loki + Tempo (pendiente, ver roadmap §10)
 ```
 
@@ -54,29 +54,46 @@ Observabilidad (siempre activa en local):
 
 | Capa | Tecnología | Versión | Notas |
 |---|---|---|---|
-| Lenguaje backend | Java | 21 LTS | records, pattern matching, virtual threads |
-| Framework | Spring Boot | 3.x | última estable |
-| Build | Maven | multi-módulo | parent POM en raíz |
+| Lenguaje backend | Java | 21.0.13+9 (Temurin LTS) | records, pattern matching, virtual threads |
+| Framework | Spring Boot | 4.1.2 | línea 4.x, soportada hasta 2027-07-31; Java 21 |
+| Build | Maven | 3.9.16 (wrapper) | multi-módulo; parent POM en raíz |
 | Migraciones | Flyway | última | por servicio |
-| Persistencia | PostgreSQL | 16 | un schema por servicio, escalable a DB separada |
-| Mensajería | Apache Kafka | 4.x KRaft | sin ZooKeeper |
-| Almacenamiento de objetos | MinIO | última | S3-compatible |
-| Email fake | MailHog | última | captura SMTP |
+| Persistencia | PostgreSQL | 16.16 | imagen `postgres:16.16-alpine`; un schema por servicio, escalable a DB separada |
+| Mensajería | Apache Kafka | 4.4.0 KRaft | imagen oficial `apache/kafka:4.4.0`; sin ZooKeeper |
+| Almacenamiento de objetos | Versity S3 Gateway | 1.11.0 | S3 sobre POSIX; puerto 7070 |
+| Email fake | Mailpit | 1.33.1 | SMTP en 1025, UI/API en 8025 |
 | Seguridad | Spring Security + JWT | propio | BCrypt + refresh token |
-| Documentación API | springdoc-openapi | OpenAPI 3.1 | por servicio |
+| Documentación API | springdoc-openapi | 3.2.0 (OpenAPI 3.1) | línea 3.x para Spring Boot 4.x; por servicio |
 | Testing backend | JUnit 5, Mockito, AssertJ, Testcontainers, RestAssured | — | ver §8 |
 | Cobertura | JaCoCo | — | gate (ver §8) |
-| Frontend | React 19 + TypeScript | 19.x | — |
-| Bundler | Vite | última | — |
-| Estado servidor | TanStack Query | última | — |
-| Estilos | Tailwind CSS + shadcn/ui | última | — |
-| Router | React Router | v7 | — |
-| Testing frontend | Vitest + RTL + Playwright | — | — |
+| Frontend | React 19 + TypeScript | 19.3.1 / 5.9.3 | TypeScript 5.9.3: la 7.x aún no la soporta `typescript-eslint` 8 |
+| Bundler | Vite | 8.3.8 | `@vitejs/plugin-react` 6.3.0 |
+| Estado servidor | TanStack Query | 5.107.1 | — |
+| Estilos | Tailwind CSS + shadcn/ui | 4.3.5 / CLI 4.23.0 | — |
+| Router | React Router | 8.5.1 | exige React ≥ 19.2.7 y Node ≥ 22.22.0 |
+| Testing frontend | Vitest + RTL + Playwright | 5.1.0 / 16.3.3 / 1.65.0 | cobertura con `@vitest/coverage-v8` |
+| Lint frontend | ESLint + `typescript-eslint` | 10.14.0 / 8.72.2 | configuración plana |
 | CI/CD | Jenkins | LTS | corre en Docker |
+| Contenedores | Docker Engine + Compose | 29.10.0 / v5.7.1 | plugin `docker compose`; `up --wait` y healthchecks en todos los servicios |
 | Imágenes | Kaniko | — | sin Docker-in-Docker |
 | SBOM / escaneo | Syft + Trivy | — | rompe build si HIGH/CRITICAL |
-| Observabilidad | Micrometer + Prometheus + Grafana + Loki + Tempo | — | — |
-| SDD | OpenSpec (`@fission-ai/openspec`) | 1.17.0 | requiere **Node ≥ 22.12.0**; tool id `continue` |
+| Observabilidad (métricas) | Micrometer + Prometheus | Prometheus 3.16.0 | `/actuator/prometheus` en los seis servicios; *scrape* cada 15 s por DNS de `obs-net` |
+| Dashboards | Grafana | 13.3.1 | puerto 3000; sin dashboards aprovisionados todavía |
+| UI de Kafka | Kafka UI (`kafbat/kafka-ui`) | 1.5.0 | fork mantenido de `provectuslabs/kafka-ui`; puerto 8087 |
+| Trazas y logs | Loki + Tempo | — | pendiente (roadmap §10): el change `project-skeleton` solo levanta métricas |
+| SDD | OpenSpec (`@fission-ai/openspec`) | 2.0.0 | skills en `.agents/skills/`; requiere **Node ≥ 22.12.0**, el proyecto fija 22.22.0 |
+
+Versiones verificadas en la tarea 1.2 (2026-11-12) contra Maven Central y Docker Hub: Spring Boot **4.1.2**, springdoc-openapi **3.2.0** y `apache/kafka:4.4.0`. Se descarta la línea 3.5 (última 3.5.16) por estar fuera de soporte OSS desde el 2026-06-30; springdoc 2.x (última 2.10.0) solo aplica a Spring Boot 3.x.
+
+Versiones del frontend verificadas el 2026-11-12 en el registro de npm: React **19.3.1**, Vite **8.3.8**, TypeScript **5.9.3**, ESLint **10.14.0**, `typescript-eslint` **8.72.2**, Tailwind **4.3.5**, React Router **8.5.1**, TanStack Query **5.107.1** y Vitest **5.1.0**. TypeScript no se fija en la 7.0.2 porque `typescript-eslint` 8.72.2 declara `typescript >=4.8.4 <6.1.0`; React Router 8.5.1 eleva el mínimo de Node a **22.22.0**.
+
+Almacenamiento de objetos: **Versity S3 Gateway 1.11.0** (`versity/versitygw:v1.11.0`, digest `sha256:8319a530…`) verificado el 2026-11-12; MinIO se descarta porque sus imágenes oficiales ya no se publican (Docker Hub 404, Quay y ghcr sin manifiesto) y su último release upstream es de octubre de 2025. Toolchain local: Temurin **21.0.13+9** y Maven **3.9.16**.
+
+Imágenes base de los Dockerfiles verificadas el 2026-11-16 en el registro de Docker Hub: `maven:3.9.16-eclipse-temurin-21-alpine` (coincide con el Maven del wrapper), `eclipse-temurin:21.0.13_9-jre-alpine` (coincide con el Temurin local), `node:22.23.5-alpine` (cumple el mínimo 22.22.0 del frontend; la 22.24.0 aún no existe) y `nginxinc/nginx-unprivileged:1.30.6-alpine` (línea estable, UID 101 y puerto 8080).
+
+Imágenes de la pila de observabilidad verificadas el 2026-11-17 contra Docker Hub: `prom/prometheus:v3.16.0` y `grafana/grafana:13.3.1` son las últimas publicadas y su digest **coincide** con el del tag `latest`; `kafbat/kafka-ui:v1.5.0` es la última release del proyecto. Con esas tres versiones, `docker compose up --wait` deja la pila sana y `/api/v1/targets` de Prometheus devuelve los seis objetivos en estado `up` (tareas 8.1 y 8.2).
+
+Las imágenes de las dependencias que fija `ops/compose/docker-compose.base.yml` coinciden con esta tabla y se comprobaron en el entorno en marcha el 2026-11-17: `postgres:16.16-alpine` (postgres y postgres-init), `axllent/mailpit:v1.33.1`, `apache/kafka:4.4.0` (por `KAFKA_IMAGE`, también en kafka-init), `versity/versitygw:v1.11.0` (por `S3_IMAGE`) y `amazon/aws-cli:2.40.3` (cliente con el que versity-init crea el bucket).
 
 ## 5. Bounded contexts (servicios y responsabilidades)
 
@@ -86,8 +103,8 @@ Observabilidad (siempre activa en local):
 | `auth-service` | Login, emisión/renovación de JWT, roles | `auth` schema | — |
 | `user-service` | Perfil, preferencias, dietas, alérgenos | `users` schema | produce `user.registered`, `user.updated` |
 | `recipe-service` | CRUD recetas, ingredientes, pasos, tags, búsqueda FTS | `recipes` schema | produce `recipe.created/updated/deleted`; consume `media.uploaded` |
-| `media-service` | Subida de imágenes, presigned URLs, borrado | `media` schema + MinIO | produce `media.uploaded`; consume `recipe.deleted` |
-| `notification-service` | Feed de actividad + email (MailHog) | `notifications` schema | consume todos los anteriores |
+| `media-service` | Subida de imágenes, presigned URLs, borrado | `media` schema + Versity | produce `media.uploaded`; consume `recipe.deleted` |
+| `notification-service` | Feed de actividad + email (Mailpit) | `notifications` schema | consume todos los anteriores |
 
 **Contrato de eventos**: se formalizará en `openspec/specs/events/spec.md` cuando exista.
 
@@ -100,19 +117,22 @@ Observabilidad (siempre activa en local):
 ├── AGENTS.md            # reglas del agente IA
 ├── LICENSE              # MIT
 ├── .gitignore
+├── .gitattributes       # normalización de fin de línea (blob en LF, *.cmd en CRLF)
+├── .dockerignore        # contexto de build que reciben los Dockerfiles
 ├── .editorconfig
 ├── .env.example         # plantilla de configuración (.env real ignorado)
-├── .mvn/                # Maven Wrapper (versión de Maven fijada)
+├── .mvn/                # Maven Wrapper (versión fijada y suma SHA-256 del zip)
+├── mvnw                 # lanzador del wrapper (POSIX)
+├── mvnw.cmd             # lanzador del wrapper (Windows; se guarda en LF y sale en CRLF)
 ├── openspec/            # SDD (generado por `openspec init`)
 │   ├── config.yaml      # config del proyecto (schema: spec-driven)
 │   ├── specs/           # specs as-built
 │   └── changes/         # changes pendientes
 │       └── archive/     # changes cerrados + specs consolidadas
-├── .continue/           # skills y prompts de OpenSpec para Continue
-│   ├── skills/
-│   └── prompts/
+├── .agents/             # skills de OpenSpec 2.0 (compartidas por todas las herramientas)
+│   └── skills/
 ├── config/              # configuración compartida de lint (Checkstyle)
-├── scripts/             # verificaciones del esqueleto (módulos, imágenes, entorno)
+├── scripts/             # verificaciones: módulos, imágenes, entorno y apagado ordenado
 ├── apps/
 │   ├── web-frontend/    # React + Vite
 │   ├── api-gateway/
@@ -124,23 +144,27 @@ Observabilidad (siempre activa en local):
 │       └── notification-service/
 ├── libs/
 │   ├── common-dto/
-│   └── common-observability/
+│   ├── common-observability/
+│   └── common-test-support/   # anotaciones compuestas de test (§7, D14)
 ├── ops/                 # operación del proyecto (local y CI)
-│   ├── docker/          # Dockerfiles
+│   ├── docker/          # Dockerfiles (java-service, web-frontend) y nginx.conf
 │   ├── compose/         # docker-compose.{base,dev,obs}.yml
-│   └── jenkins/         # Jenkinsfile, shared library
+│   │   └── obs/         # prometheus.yml (scrape de los seis servicios)
+│   └── jenkins/         # pendiente: Jenkinsfile y shared library (change de CI)
 └── pom.xml              # parent Maven multi-módulo
 ```
 
 ## 7. Convenciones
 
-- **Código en inglés**: clases, métodos, variables, mensajes de commit.
-- **Documentación en español**: README, PROJECT.md, specs OpenSpec. Comentarios que expliquen el *por qué*, no el *qué*.
+- **Código en inglés**: clases, métodos, variables, mensajes de commit y **todos los comentarios de ficheros de código o de configuración/build** (`pom.xml`, `config/checkstyle/*.xml`, `.editorconfig`, `.gitignore`, `.gitattributes`, `Dockerfile`, Compose, scripts).
+- **Documentación en español**: README, PROJECT.md, AGENTS.md y specs OpenSpec (incluido `openspec/config.yaml`). El idioma de un comentario lo decide **el tipo de fichero**, no el tema del que habla, y **no hay excepciones** por tamaño del fichero ni por quién lo lea. Los comentarios explican el *por qué*, no el *qué*.
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 - **Ramas**: `main` (estable), `feat/<change-id>-<slug>`, `fix/<slug>`.
 - **Rama por change**: cada change OpenSpec se implementa en su propia rama; el PR referencia el `change-id`.
+- **Merge de PRs: `squash and merge`, y solo ese método.** En el repositorio están activos `allow_squash_merge=true` con `allow_merge_commit=false` y `allow_rebase_merge=false`, de modo que **un change = un commit** en `main`: historial lineal, `git log` legible y revert del change completo en una sola operación. Consecuencias asumidas, que no se replantean sin cambiar esta sección: (a) el **asunto del commit resultante es el título del PR**, así que el título debe ser un Conventional Commit y el cuerpo del commit se redacta al mergear (`gh pr merge --squash -t … -b …`); (b) los commits granulares de la rama **no** llegan a `main`, y el rastro por tarea con su verificación se conserva en el `tasks.md` del change, que sobrevive al archivado en `openspec/changes/archive/<fecha>-<change>/`; (c) la rama remota se borra sola al mergear (`delete_branch_on_merge=true`) y la copia local se descarta con `git branch -D`, porque tras un squash git no la reconoce como mergeada.
 - **Package base**: `com.domincipe.<servicio>`.
 - **Configuración**: 100% por variables de entorno. `.env.example` versionado, `.env` ignorado.
+- **Propiedades repetidas**: toda propiedad de configuración que se repita en más de un módulo o clase se declara **una sola vez** en un fichero `.properties` (del módulo o compartido), nunca copiada en cada clase. En los tests, la forma prevista es una anotación compuesta compartida sobre `@SpringBootTest` (decisión D14 del change `project-skeleton`, tarea 5.2).
 
 ## 8. Testing
 
@@ -168,7 +192,7 @@ Observabilidad (siempre activa en local):
 **v1 = local Docker Compose**, con perfil cloud-like:
 
 - `ops/compose/docker-compose.base.yml` — servicios, datos, salud, redes, límites.
-- `ops/compose/docker-compose.dev.yml` — override para desarrollo local (hot reload, puertos expuestos).
+- `ops/compose/docker-compose.dev.yml` — override para desarrollo local: puertos publicados en el host y volúmenes persistentes de datos. El **hot reload del frontend** se ejecuta en el host (`VITE_API_BASE_URL=http://localhost:8080 npm run dev`); Compose sirve siempre el bundle inmutable de nginx.
 - `ops/compose/docker-compose.obs.yml` — pila de observabilidad (Prometheus, Grafana, Kafka UI), **siempre activa**.
 
 El comando canónico es `docker compose up --wait` desde la raíz: `.env` declara `COMPOSE_FILE` con los tres ficheros, de modo que la observabilidad se levanta siempre. Para arrancar sin ella (equipos con pocos recursos) se pasan `-f` explícitos sobre `base` y `dev`.
@@ -210,6 +234,6 @@ El comando canónico es `docker compose up --wait` desde la raíz: `.env` declar
 - **JaCoCo**: herramienta de medición de cobertura de tests en Java.
 - **Gate de cobertura**: umbral mínimo que, de no cumplirse, hace fallar el build.
 - **Testcontainers**: lanza contenedores reales (Postgres, Kafka) para tests de integración.
-- **Presigned URL**: URL temporal firmada para subir/descargar de S3/MinIO sin exponer credenciales.
+- **Presigned URL**: URL temporal firmada para subir/descargar de S3/Versity sin exponer credenciales.
 - **SBOM**: Software Bill of Materials (inventario de dependencias).
 - **BFF**: Backend For Frontend (el `api-gateway` aquí).

@@ -1,0 +1,2 @@
+com.domincipe.common.observability.ObservabilityAutoConfiguration
+com.domincipe.common.observability.ApiDocsAutoConfiguration

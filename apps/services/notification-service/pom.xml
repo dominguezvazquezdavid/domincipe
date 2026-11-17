@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Notification service: activity feed and email through Mailpit (PROJECT.md §5).
+  Skeleton only: no domain logic and no persistence yet (design D12).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.domincipe</groupId>
+        <artifactId>domincipe-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>notification-service</artifactId>
+    <name>Notification service</name>
+    <description>Activity feed and email notifications.</description>
+
+    <dependencies>
+        <!--
+          Shared operational behaviour (correlation id, actuator exposure, graceful shutdown and
+          the mandatory APP_ENVIRONMENT) registered as auto-configuration, so this module does
+          not scan the library package.
+        -->
+        <dependency>
+            <groupId>com.domincipe</groupId>
+            <artifactId>common-observability</artifactId>
+        </dependency>
+        <!--
+          OpenAPI 3 contract generated from the code: /v3/api-docs and /swagger-ui.html, on by
+          default and switched off with APP_DOCS_ENABLED (service-runtime spec, design D16).
+          Version from the springdoc-openapi-bom imported in the parent.
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
+        <!--
+          Shared test building blocks: the @DomincipeServiceTest annotation and the runtime
+          contract every service runs, declared once in libs/common-test-support (D14).
+        -->
+        <dependency>
+            <groupId>com.domincipe</groupId>
+            <artifactId>common-test-support</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          Test dependencies are not transitive, so every service declares its own test starter
+          instead of relying on the one common-observability uses internally.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+              Executable jar through the repackage execution inherited from
+              spring-boot-starter-parent, plus the spring-boot:run goal the shared library
+              README documents as the way to start a service.
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
