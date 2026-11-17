@@ -59,6 +59,19 @@ Reglas mínimas: `PackageName` con formato `^com\.domincipe(\.[a-z][a-z0-9]*)*$`
 
 **Verificado el 2026-11-13 (tarea 2.3) — decisión cerrada:** con JaCoCo 0.8.16, un módulo sin fichero de ejecución (`jacoco.exec`) imprime `Skipping JaCoCo execution due to missing execution data file` y el build sigue en verde; un módulo con datos pero sin clases analizables tras las exclusiones imprime `Analyzed bundle ... with 0 classes` y `All coverage checks have been met.`. **No se aplica ninguna de las dos opciones**: ni exclusión de módulos del gate ni `jacoco.skip`, porque el plugin ya resuelve ambos casos por sí solo. Las tres exclusiones se comprobaron en una sola pasada —cuatro clases en disco (`*Application`, `dto`, `*Impl` y una real) y solo una analizada— y la prueba negativa rompe el build con `lines covered ratio is 0.00, but expected minimum is 0.80` y `branches covered ratio is 0.00, but expected minimum is 0.70`. La comprobación se hizo con el módulo desechable `libs/jacoco-probe`, borrado después, porque `libs/common-observability` nace en la tarea 3.1; el gate se vuelve a ejercer sobre código real en 4.1 y 5.4.
 
+**Nota para el PR (tarea 2.4), lista para copiar en la descripción:**
+
+> **Gate JaCoCo: la decisión de D5 queda como está.** La tarea 2.3 verificó empíricamente con JaCoCo 0.8.16 qué hace `jacoco:check` en los dos casos límite que este change introduce, y no hay que añadir nada:
+>
+> - Módulo **sin datos de ejecución** (sin `jacoco.exec`): el plugin registra `Skipping JaCoCo execution due to missing execution data file` y el build continúa en verde.
+> - Módulo **con datos pero sin clases analizables** tras las exclusiones: registra `Analyzed bundle ... with 0 classes` y `All coverage checks have been met.`, porque el ratio no es computable y no se viola ningún límite.
+>
+> Por eso se descartan las dos opciones que estaban abiertas —(a) excluir del gate los módulos sin clases ejecutables y (b) marcar `jacoco.skip` en esos módulos—: ninguna hace falta y ambas habrían quitado el gate donde sí hay código. El gate sigue activo con los umbrales de `PROJECT.md` §8, **0.80 de líneas y 0.70 de ramas**, y las tres exclusiones (`**/*Application.class`, `**/dto/**`, `**/*Impl.class`) se aplican tanto al informe como al `check`, de modo que el HTML de `target/site/jacoco/index.html` muestra exactamente las clases que se miden.
+>
+> **La prueba negativa demuestra que el gate muerde**: con una clase real sin tests, el build falla con `lines covered ratio is 0.00, but expected minimum is 0.80` y `branches covered ratio is 0.00, but expected minimum is 0.70`. Se hizo sobre el módulo desechable `libs/jacoco-probe`, borrado después porque `libs/common-observability` nace en la tarea 3.1; el gate se vuelve a ejercer sobre código real en 4.1 y 5.4, y en el `verify` completo de 9.3 cada módulo informa `All coverage checks have been met.`
+>
+> **Coherencia POM ↔ comentario:** los dos umbrales del `pom.xml` son las properties `jacoco.line.minimum` (0.80) y `jacoco.branch.minimum` (0.70), y el comentario que precede al plugin declara esa misma regla y las mismas tres exclusiones. No hay un segundo juego de valores ni un módulo con configuración propia.
+
 ### D6. Detección de módulos no declarados con un script
 
 Maven ignora en silencio cualquier directorio que no figure en `<modules>` del agregador, así que la garantía de la spec necesita un mecanismo propio: `scripts/verify-modules.sh` recorre los directorios con `pom.xml` bajo `apps/`, `apps/services/` y `libs/`, los compara con los módulos declarados y devuelve código distinto de 0 nombrando los que falten. `exec-maven-plugin` lo ejecuta en `validate` desde el POM raíz.
