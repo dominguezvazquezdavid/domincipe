@@ -18,7 +18,7 @@ El change `project-skeleton` está implementado y verificado: el repositorio con
 |---|---|
 | Documentación (`README.md`, `PROJECT.md`, `AGENTS.md`) | ✅ Disponible |
 | Metodología SDD con OpenSpec (`openspec/`) | ✅ Inicializada (`schema: spec-driven`) |
-| Change `project-skeleton` | ✅ Implementado y verificado — pendientes la documentación del PR (tarea 2.4) y el archivado del change |
+| Change `project-skeleton` | ✅ Implementado, mergeado en `main` (PR #1, squash) y archivado — tag **`v0.1.0`** |
 | Parent POM, módulos Java y frontend | ✅ Disponible (`./mvnw -B -ntp verify`) |
 | Imágenes Docker y Compose (base + dev + obs) | ✅ Disponible (`docker compose up --wait`) |
 | Observabilidad (Prometheus, Grafana, Kafka UI) | ✅ Siempre activa, sin `profiles` |
@@ -182,11 +182,26 @@ En Cline las skills se invocan escribiendo `/` en el chat (`/openspec-propose`, 
 
 ---
 
+## Ramas y releases
+
+Gitflow-lite: dos ramas permanentes —`main` para releases estables y funcionales, `develop` para integración (rama por defecto)— y ramas cortas que nacen y mueren con cada trabajo.
+
+| Rama | Nace de | Entra en | Se borra |
+|---|---|---|---|
+| `feat/<change-id>-<slug>` | `develop` | `develop` (PR squash) | al mergear |
+| `fix/<slug>` | `develop` | `develop` (PR squash) | al mergear |
+| `release/<x.y.z>` | `develop` | `main` (PR squash + tag `vX.Y.Z`) | al mergear |
+| `hotfix/<x.y.z>` | `main` | `main` y `develop` (PR squash) | al mergear |
+
+Un release se **congela** —solo arreglos, ninguna feature nueva— y solo pasa a `main` después de la batería completa sobre un entorno recreado: `./mvnw -B -ntp verify`, `npm ci && npm run lint && npm run build && npm test`, `docker compose up --wait` desde cero, `scripts/verify-environment.sh` y `scripts/verify-shutdown.sh`. De la release sobrevive el **tag anotado** `vX.Y.Z` sobre `main`; no hay rama `release` permanente. La regla completa y su porqué están en [PROJECT.md §7](./PROJECT.md).
+
+---
+
 ## Convenciones
 
 - **Código en inglés**, **documentación en español**; comentarios que expliquen el *por qué*.
 - **Conventional Commits** (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
-- **Ramas**: `main` (estable), `feat/<change-id>-<slug>`, `fix/<slug>`.
+- **Ramas (Gitflow-lite)**: `main` (solo releases estables), `develop` (integración, **rama por defecto**), `release/<x.y.z>` (congelado, efímera), `feat/<change-id>-<slug>`, `fix/<slug>` y `hotfix/<x.y.z>`. Detalle en [PROJECT.md §7](./PROJECT.md).
 - **Merge**: `squash and merge` como único método (un change = un commit; el título del PR pasa a ser el asunto del commit) y la rama del change se borra al mergear.
 - **Configuración 100 % por variables de entorno**; `.env.example` versionado, `.env` ignorado.
 - **Package base**: `com.domincipe.<servicio>`.
