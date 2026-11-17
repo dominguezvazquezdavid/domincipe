@@ -113,18 +113,13 @@ Vite 8 con `react-ts`, TypeScript 5.9.3 y `strict: true` en `tsconfig.json`, ESL
 
 *Por qué validar en `vite.config.ts`:* es el único punto que se ejecuta tanto en `dev` como en `build`, así que el fallo aparece antes de empaquetar y no en tiempo de ejecución en el navegador. *Alternativa:* fallar solo en `src/config/env.ts`; se descarta porque `npm run build` terminaría con código 0 generando un bundle inservible.
 
-### D14. Observabilidad siempre activa, no un perfil opt-in
+### D14. Una propiedad repetida se declara una sola vez
 
-`docker-compose.obs.yml` levanta Prometheus, Grafana y Kafka UI **sin `profiles:`**, y `.env.example` declara `COMPOSE_FILE` con los tres ficheros (base, dev y obs). Así el comando canónico `docker compose up --wait` desde la raíz levanta el entorno completo, observabilidad incluida.
+La tarea 5.1 deja una clase de test por servicio con `@SpringBootTest(properties = "app.environment=local")`, porque `APP_ENVIRONMENT` es obligatoria y no tiene valor por defecto. La repetición es aceptable mientras haya una sola clase por módulo, pero no escala: 5.2, 5.3 y 5.5 añaden varias clases por servicio. La regla, registrada en [PROJECT.md §7](../../../PROJECT.md), es que **toda propiedad de configuración que se repita entre módulos o clases se declara una sola vez**: en un fichero `.properties` cuando la repetición es de configuración y en una anotación compuesta compartida cuando la repetición está en anotaciones de test.
 
-*Verificado empíricamente en esta máquina* (Docker 29.9.3 / Compose v5.7.1): con `COMPOSE_FILE=ops/compose/docker-compose.base.yml:ops/compose/docker-compose.obs.yml` en `.env`, `docker compose config --services` desde la raíz lista los servicios de ambos ficheros, resolviendo las rutas relativas correctamente. No es una suposición sobre el comportamiento de Compose.
+La forma prevista es `libs/common-test-support` con `@DomincipeServiceTest`, una anotación meta-anotada con `@SpringBootTest` que aporta `app.environment=local` y replica `webEnvironment` con `@AliasFor`; los servicios la declaran en scope `test`. **Se implementa en la tarea 5.2**, no en 5.1, para diseñarla con los requisitos ya conocidos de 5.2 (entorno web real), 5.3 (caso sin la propiedad, que no puede usar la anotación tal cual) y 5.5 (documentación OpenAPI).
 
-*Por qué siempre activa:* en un entorno real la recolección de métricas no es opcional —si los objetivos no se scrapean desde el primer minuto, no hay histórico cuando aparece el problema— y el objetivo educativo del proyecto es precisamente ver esa instrumentación funcionando. Un perfil desactivado por defecto acaba no arrancándose nunca.
-
-*Trade-off asumido:* Prometheus, Grafana y Kafka UI consumen RAM y CPU en local. Se mitiga con límites de recursos en Compose y con una vía de escape documentada: quitar el fichero de observabilidad de `COMPOSE_FILE` (o pasar `-f` explícitos) arranca el resto del entorno sin ella. *Alternativas descartadas:* `profiles: [obs]` (oculta por defecto lo que el proyecto quiere enseñar) e integrar el stack directamente en `docker-compose.base.yml` (rompe la separación por capas que fija PROJECT.md §9 y obliga a editar el fichero base para cambiar de escenario).
-
-**Alcance:** en este change la pila se limita a Prometheus, Grafana y Kafka UI. Loki y Tempo exigirían instrumentación de trazas (exportador OTLP, colector) sin tráfico real que analizar; incluirlos ahora daría contenedores decorativos. PROJECT.md §3 y §9 se actualizan para reflejar el reparto.
-
+*Verificado el 2026-11-13 con un módulo desechable:* una anotación compuesta sobre `@SpringBootTest` aplica sus propiedades a un test real, y un módulo que solo contiene la anotación deja el gate JaCoCo en verde (`Analyzed bundle ... with 0 classes` → `All coverage checks have been met.`), sin necesidad de `jacoco.skip` ni de exclusiones nuevas, por lo que D5 sigue cerrada.
 
 ### D15. Documentación como parte del entregable
 
@@ -152,14 +147,6 @@ MinIO se descarta porque sus imágenes oficiales ya no se publican: `minio/minio
 
 *Verificado el 2026-11-12*: la imagen arranca en el puerto **7070** y responde **403** a las peticiones sin firmar; no expone `/health` ni `/metrics` por defecto, así que el healthcheck de Compose se define sobre esa respuesta y el aprovisionamiento del bucket pasa de `mc mb` a `aws s3api`. *Consecuencia:* las presigned URLs, que `media-service` necesita, deben validarse explícitamente en la tarea 7.x.
 
-### D14. Una propiedad repetida se declara una sola vez
-
-La tarea 5.1 deja una clase de test por servicio con `@SpringBootTest(properties = "app.environment=local")`, porque `APP_ENVIRONMENT` es obligatoria y no tiene valor por defecto. La repetición es aceptable mientras haya una sola clase por módulo, pero no escala: 5.2, 5.3 y 5.5 añaden varias clases por servicio. La regla, registrada en [PROJECT.md §7](../../../PROJECT.md), es que **toda propiedad de configuración que se repita entre módulos o clases se declara una sola vez**: en un fichero `.properties` cuando la repetición es de configuración y en una anotación compuesta compartida cuando la repetición está en anotaciones de test.
-
-La forma prevista es `libs/common-test-support` con `@DomincipeServiceTest`, una anotación meta-anotada con `@SpringBootTest` que aporta `app.environment=local` y replica `webEnvironment` con `@AliasFor`; los servicios la declaran en scope `test`. **Se implementa en la tarea 5.2**, no en 5.1, para diseñarla con los requisitos ya conocidos de 5.2 (entorno web real), 5.3 (caso sin la propiedad, que no puede usar la anotación tal cual) y 5.5 (documentación OpenAPI).
-
-*Verificado el 2026-11-13 con un módulo desechable:* una anotación compuesta sobre `@SpringBootTest` aplica sus propiedades a un test real, y un módulo que solo contiene la anotación deja el gate JaCoCo en verde (`Analyzed bundle ... with 0 classes` → `All coverage checks have been met.`), sin necesidad de `jacoco.skip` ni de exclusiones nuevas, por lo que D5 sigue cerrada.
-
 ### D19. El apagado ordenado se verifica con 0 o 143, nunca 137
 
 El contrato de apagado se cumplió con un `docker compose stop` real y una petición en curso, y la medición obligó a corregir las specs: **el JVM sale con 143 (`128 + SIGTERM`), no con 0**. Un proceso Java que atiende `SIGTERM` drena el contexto y termina por la señal, y Docker reporta ese 143; forzar el 0 exigiría un wrapper de entrypoint que reescribiera el código de salida, lo que además oculta si la parada fue externa. El código que delata un fallo de verdad es **137 (`128 + SIGKILL`)**: el periodo de gracia se agotó antes de que el drenaje terminase.
@@ -169,6 +156,20 @@ Medido el 2026-11-16 con `scripts/verify-shutdown.sh`: `docker compose stop api-
 Dos detalles de la implementación, también medidos: la petición tiene que ir **directa a la IP del contenedor**, porque el *userland proxy* que Docker pone delante del puerto publicado bufferiza megabytes y el servicio no llega a bloquearse (el stop terminaba en ~0,4 s y truncaba la respuesta); y se envían **tres peticiones pipelineadas** del bundle de Swagger UI, el mayor recurso sin endpoints de negocio (1,68 MB), para que la primera siga escribiéndose cuando llega `SIGTERM`. Las peticiones pipelineadas que Tomcat no llegó a despachar se cierran con la conexión al terminar el drenaje: es el comportamiento normal de HTTP/1.1 y no se exige respuesta para ellas; lo que nunca se acepta es un cuerpo incompleto.
 
 *Alternativas descartadas:* exigir 0 (mentira sobre la causa de la terminación, más un wrapper como PID 1 con su propia clase de fallos de *signal forwarding*), aceptar también 137 (taparía el único fallo real) y verificar solo `web-frontend` (no ejercitaría el drenaje de Spring, que es el requisito de `service-runtime`).
+
+### D20. Observabilidad siempre activa, no un perfil opt-in
+
+`docker-compose.obs.yml` levanta Prometheus, Grafana y Kafka UI **sin `profiles:`**, y `.env.example` declara `COMPOSE_FILE` con los tres ficheros (base, dev y obs). Así el comando canónico `docker compose up --wait` desde la raíz levanta el entorno completo, observabilidad incluida.
+
+*Verificado empíricamente en esta máquina* (Docker 29.9.3 / Compose v5.7.1 en la medición original; Docker 29.10.0 / Compose v5.7.1 al verificar la tarea 8.3): con `COMPOSE_FILE=ops/compose/docker-compose.base.yml:ops/compose/docker-compose.obs.yml` en `.env`, `docker compose config --services` desde la raíz lista los servicios de ambos ficheros, resolviendo las rutas relativas correctamente. No es una suposición sobre el comportamiento de Compose.
+
+*Por qué siempre activa:* en un entorno real la recolección de métricas no es opcional —si los objetivos no se scrapean desde el primer minuto, no hay histórico cuando aparece el problema— y el objetivo educativo del proyecto es precisamente ver esa instrumentación funcionando. Un perfil desactivado por defecto acaba no arrancándose nunca.
+
+*Trade-off asumido:* Prometheus, Grafana y Kafka UI consumen RAM y CPU en local. Se mitiga con límites de recursos en Compose y con una vía de escape documentada: quitar el fichero de observabilidad de `COMPOSE_FILE` (o pasar `-f` explícitos) arranca el resto del entorno sin ella. *Alternativas descartadas:* `profiles: [obs]` (oculta por defecto lo que el proyecto quiere enseñar) e integrar el stack directamente en `docker-compose.base.yml` (rompe la separación por capas que fija PROJECT.md §9 y obliga a editar el fichero base para cambiar de escenario).
+
+**Alcance:** en este change la pila se limita a Prometheus, Grafana y Kafka UI. Loki y Tempo exigirían instrumentación de trazas (exportador OTLP, colector) sin tráfico real que analizar; incluirlos ahora daría contenedores decorativos. PROJECT.md §3 y §9 se actualizan para reflejar el reparto.
+
+**Nota de numeración:** esta decisión nació como D14 y al cerrar la tarea 9.1 se renumeró a D20 y se movió al final del apartado, porque D14 estaba asignado dos veces en este documento y así las decisiones se leen en orden D1–D20. Se conserva el identificador D14 para la decisión «Una propiedad repetida se declara una sola vez», que es la que citan `PROJECT.md` §6 y §7, los seis `pom.xml` de servicio y las clases de `libs/common-test-support`; renumerar aquella habría roto catorce referencias, mientras que esta solo figuraba en dos comentarios de Compose.
 
 ## Risks / Trade-offs
 

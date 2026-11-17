@@ -1,4 +1,4 @@
-# Observability layer of the local environment (design D14). It declares no
+# Observability layer of the local environment (design D20). It declares no
 # `profiles:` on purpose: the stack is part of the environment, not an opt-in,
 # and .env declares COMPOSE_FILE with base + dev + obs, so the canonical
 # `docker compose up --wait` from the repository root starts it.

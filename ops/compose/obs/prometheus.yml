@@ -1,4 +1,4 @@
-# Scrape configuration of the local Prometheus (design D14).
+# Scrape configuration of the local Prometheus (design D20).
 #
 # Every Java service exposes its Micrometer metrics in Prometheus text format on
 # /actuator/prometheus (service-runtime spec). Compose DNS resolves each name
