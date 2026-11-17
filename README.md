@@ -187,6 +187,7 @@ En Cline las skills se invocan escribiendo `/` en el chat (`/openspec-propose`, 
 - **Código en inglés**, **documentación en español**; comentarios que expliquen el *por qué*.
 - **Conventional Commits** (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`).
 - **Ramas**: `main` (estable), `feat/<change-id>-<slug>`, `fix/<slug>`.
+- **Merge**: `squash and merge` como único método (un change = un commit; el título del PR pasa a ser el asunto del commit) y la rama del change se borra al mergear.
 - **Configuración 100 % por variables de entorno**; `.env.example` versionado, `.env` ignorado.
 - **Package base**: `com.domincipe.<servicio>`.
 
