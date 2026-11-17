@@ -63,6 +63,15 @@ RUN curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY
       | tar -xz -C /usr/local/bin trivy \
     && trivy --version | grep -F "Version: ${TRIVY_VERSION}"
 
+# Mount points of the named volumes declared in docker-compose.yml (design D2,
+# D3, D11): /cache, /out, /var/jenkins_home/.m2/repository and
+# /var/jenkins_home/.npm. Docker initialises a fresh volume by copying the
+# ownership of the directory at that path in the image, so the paths have to
+# exist here and belong to the jenkins user; a path Docker creates on the fly is
+# root-owned and the pipeline (buildctl, Maven, npm) cannot write to it.
+RUN mkdir -p /cache /out /var/jenkins_home/.m2/repository /var/jenkins_home/.npm \
+    && chown -R jenkins:jenkins /cache /out /var/jenkins_home/.m2 /var/jenkins_home/.npm
+
 # Put the toolchain on the PATH of the jenkins user without depending on its
 # shell profile (the stages run non-interactive shells).
 ENV MAVEN_HOME=/opt/maven
