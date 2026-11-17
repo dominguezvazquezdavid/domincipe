@@ -20,7 +20,7 @@ credentials:
     domainCredentials:
       - credentials:
           # Reference only, never a value: the secret arrives through the
-          # GITHUB_TOKEN variable of the CI stack (design D6, task 4.4). The
+          # GITHUB_TOKEN variable of the CI stack (design D6, task 4.3). The
           # empty default is deliberate, because a cold clone without a PAT has
           # to boot: JCasC stores an empty secret instead of aborting the whole
           # reload. The scope and expiry of the PAT are documented in README.md.
@@ -34,7 +34,8 @@ jobs:
   # The multibranch project itself. It goes through the Job DSL extension of
   # JCasC because the `items` root element has no ItemConfigurator for
   # multibranch projects (verified against /configuration-as-code/check on
-  # 2026-11-17). The branch source and the scan trigger are task 4.2.
+  # 2026-11-17). The branch source and the scan trigger arrive with the Jenkinsfile
+  # in task 5.1, because their verification needs a real build.
   - script: |
       multibranchPipelineJob('domincipe') {
         description('Domincipe: the pull-request gate of the local CI stack.')

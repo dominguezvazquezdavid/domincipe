@@ -78,7 +78,7 @@ services:
       CASC_JENKINS_CONFIG: /var/jenkins_home/casc
       # The credential value travels by reference only: JCasC writes
       # `github-token` from this variable and git never holds it (design D6).
-      # Empty is a valid cold-clone state; task 4.4 brings the PAT.
+      # Empty is a valid cold-clone state; task 4.3 brings the PAT.
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     volumes:
       # Same socket volume as the builder: the client side of design D2.

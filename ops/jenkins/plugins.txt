@@ -11,9 +11,9 @@
 # Requested directly: configuration-as-code, credentials-binding, git,
 # github-branch-source, jacoco, job-dsl, junit and workflow-aggregator.
 # `job-dsl` is not optional: JCasC's `items` root element has no
-# ItemConfigurator for multibranch projects, so the job of task 4.2 is declared
-# through the Job DSL extension (`jobs:` in casc/jenkins.yaml). Raise a version
-# here only; nothing else installs plugins.
+# ItemConfigurator for multibranch projects, so the multibranch job of 4.1 and
+# 5.1 is declared through the Job DSL extension (`jobs:` in casc/jenkins.yaml).
+# Raise a version here only; nothing else installs plugins.
 #
 # Format accepted by `jenkins-plugin-cli --plugin-file`: <name>:<version>
 antisamy-markup-formatter:173.v680e3a_b_69ff3
