@@ -153,7 +153,10 @@ Versiones de CI verificadas el 2026-11-17 contra Docker Hub y GitHub: Jenkins **
 │   ├── docker/          # Dockerfiles (java-service, web-frontend) y nginx.conf
 │   ├── compose/         # docker-compose.{base,dev,obs}.yml
 │   │   └── obs/         # prometheus.yml (scrape de los seis servicios)
-│   └── jenkins/         # pendiente: Jenkinsfile y shared library (change de CI)
+│   └── jenkins/         # stack de CI local: controlador Jenkins + builder rootless
+│       ├── Dockerfile           # controlador con la toolchain fijada en ARG (§4)
+│       ├── docker-compose.yml   # los dos servicios, su red y los siete volúmenes
+│       └── plugins.txt          # los 76 plugins con su versión exacta
 └── pom.xml              # parent Maven multi-módulo
 ```
 

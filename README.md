@@ -125,7 +125,7 @@ scripts/verify-shutdown.sh      # apagado ordenado con una petición en curso (r
 
 ## Integración continua
 
-El CI es un stack local reproducible en `ops/jenkins/` (Jenkins LTS y un `buildkitd` rootless) que se levantará con `docker compose -f ops/jenkins/docker-compose.yml up --wait`. El contrato completo —pipeline, SBOM y escaneo— vive en el change `ci-pipeline` (`openspec/changes/ci-pipeline/`).
+El CI es un stack local reproducible en `ops/jenkins/`: un controlador Jenkins con la toolchain fijada (Temurin, Maven, Node.js, `buildctl`, Syft y Trivy) y un `buildkitd` rootless que construye las imágenes sin daemon. El contrato completo —pipeline, SBOM y escaneo— vive en el change `ci-pipeline` (`openspec/changes/ci-pipeline/`).
 
 ### Requisitos del host para el builder rootless
 
@@ -160,6 +160,26 @@ Comprueba, en orden:
 
 Termina con código 0 cuando el host está listo, 1 cuando falta un requisito y 2 ante un uso incorrecto; debe salir 0 antes de `up`.
 
+### Arranque del stack
+
+```bash
+scripts/ci-preflight.sh                                        # en el host; debe salir 0
+docker compose -f ops/jenkins/docker-compose.yml up -d --wait
+```
+
+- **Jenkins**: <http://localhost:8095/> — el puerto lo fija `JENKINS_PORT`. La interfaz hay que desbloquearla con la contraseña inicial que imprime el log del contenedor y deja en `/var/jenkins_home/secrets/initialAdminPassword`; el bloque 4 del change sustituye ese paso manual por configuración como código con la credencial y el job versionados.
+- **Builder**: `buildkitd`, rootless y sin puerto publicado. El pipeline lo alcanza por el socket Unix del volumen `buildkit-run`, que los dos contenedores comparten; no hay daemon Docker ni montaje de `/var/run/docker.sock`.
+- **Aislamiento**: proyecto Compose propio (`domincipe-ci`), red propia (`ci-net`) y siete volúmenes nombrados (`jenkins-home`, `buildkit-run`, `buildkit-state`, `buildkit-cache`, `oci-out`, `maven-repo`, `npm-cache`). `ops/jenkins/docker-compose.yml` está **fuera** del `COMPOSE_FILE` de la raíz, así que el CI no arranca con el entorno de desarrollo ni comparte nada con él (design D11).
+
+El stack **no necesita configuración**: cada valor trae su default en el propio compose y un clon limpio arranca sin ningún `.env`. Para cambiarlo se escribe `ops/jenkins/.env` (ignorado por git) o se exporta la variable en el shell. El `.env` de la raíz **no** se lee aquí, porque Compose busca el `.env` en el *project directory*, que con `-f ops/jenkins/docker-compose.yml` es `ops/jenkins/`; `.env.example` documenta las variables de los dos stacks, con esa misma advertencia en su bloque de CI (tarea 3.4).
+
+Para apagarlo:
+
+```bash
+docker compose -f ops/jenkins/docker-compose.yml down      # conserva el estado
+docker compose -f ops/jenkins/docker-compose.yml down -v   # la próxima vez, arranque en frío
+```
+
 ---
 
 ## Estructura del repositorio
@@ -188,7 +208,7 @@ Termina con código 0 cuando el host está listo, 1 cuando falta un requisito y 
 ├── ops/                   # operación del proyecto (local y CI)
 │   ├── docker/            # Dockerfiles y nginx.conf
 │   ├── compose/           # docker-compose.{base,dev,obs}.yml + obs/prometheus.yml
-│   └── jenkins/           # pendiente: Jenkinsfile y shared library (change de CI)
+│   └── jenkins/           # CI: Dockerfile del controlador, docker-compose.yml y plugins.txt
 ├── pom.xml                # parent Maven multi-módulo
 └── .env.example           # plantilla de configuración (el .env real nunca se versiona)
 ```
