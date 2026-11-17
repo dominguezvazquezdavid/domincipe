@@ -167,11 +167,11 @@ scripts/ci-preflight.sh                                        # en el host; deb
 docker compose -f ops/jenkins/docker-compose.yml up -d --wait
 ```
 
-- **Jenkins**: <http://localhost:8095/> — el puerto lo fija `JENKINS_PORT`. La interfaz hay que desbloquearla con la contraseña inicial que imprime el log del contenedor y deja en `/var/jenkins_home/secrets/initialAdminPassword`; el bloque 4 del change sustituye ese paso manual por configuración como código con la credencial y el job versionados.
+- **Jenkins**: <http://localhost:8095/> — el puerto lo fija `JENKINS_PORT`. Nada de la configuración se hace en la interfaz: los plugins vienen de `ops/jenkins/plugins.txt` y el nodo, el job multibranch y la credencial `github-token` de `ops/jenkins/casc/`, que JCasC aplica en cada arranque. Lo único manual es autenticarse: en un volumen nuevo Jenkins crea el usuario `admin` con la contraseña que imprime el log y deja en `/var/jenkins_home/secrets/initialAdminPassword` (comprobado el **2026-11-17** en un arranque en frío: con esa contraseña `/api/json` responde 200 sin completar ningún asistente).
 - **Builder**: `buildkitd`, rootless y sin puerto publicado. El pipeline lo alcanza por el socket Unix del volumen `buildkit-run`, que los dos contenedores comparten; no hay daemon Docker ni montaje de `/var/run/docker.sock`.
 - **Aislamiento**: proyecto Compose propio (`domincipe-ci`), red propia (`ci-net`) y siete volúmenes nombrados (`jenkins-home`, `buildkit-run`, `buildkit-state`, `buildkit-cache`, `oci-out`, `maven-repo`, `npm-cache`). `ops/jenkins/docker-compose.yml` está **fuera** del `COMPOSE_FILE` de la raíz, así que el CI no arranca con el entorno de desarrollo ni comparte nada con él (design D11).
 
-El stack **no necesita configuración**: cada valor trae su default en el propio compose y un clon limpio arranca sin ningún `.env`. Para cambiarlo se escribe `ops/jenkins/.env` (ignorado por git) o se exporta la variable en el shell. El `.env` de la raíz **no** se lee aquí, porque Compose busca el `.env` en el *project directory*, que con `-f ops/jenkins/docker-compose.yml` es `ops/jenkins/`; `.env.example` documenta las variables de los dos stacks, con esa misma advertencia en su bloque de CI (tarea 3.4).
+El stack **no necesita configuración**: cada valor trae su default en el propio compose y un clon limpio arranca sin ningún `.env`; el único valor opcional es el PAT de la sección siguiente, sin el cual el escaneo de PRs no es viable. Para cambiar cualquier variable se escribe `ops/jenkins/.env` (ignorado por git) o se exporta en el shell. El `.env` de la raíz **no** se lee aquí, porque Compose busca el `.env` en el *project directory*, que con `-f ops/jenkins/docker-compose.yml` es `ops/jenkins/`; `.env.example` documenta las variables de los dos stacks, con esa misma advertencia en su bloque de CI (tarea 3.4).
 
 Para apagarlo:
 
@@ -179,6 +179,59 @@ Para apagarlo:
 docker compose -f ops/jenkins/docker-compose.yml down      # conserva el estado
 docker compose -f ops/jenkins/docker-compose.yml down -v   # la próxima vez, arranque en frío
 ```
+
+### PAT de GitHub para el CI
+
+El job multibranch descubre ramas y PRs por la API de GitHub y publica el resultado del build en el commit, y las dos cosas son llamadas salientes: no hace falta webhook ni que el controlador sea accesible desde fuera (design D7). Para eso el stack lleva un **PAT *fine-grained*** en la credencial `github-token` que declara `ops/jenkins/casc/jenkins.yaml`. JCasC guarda la **referencia**, nunca el valor: el token entra por la variable `GITHUB_TOKEN` del stack y git no lo ve jamás (design D6).
+
+Sin PAT el stack arranca igual —la credencial queda vacía—, pero el *branch source* consulta la API como anónimo (60 peticiones por hora e IP) y el limitador del plugin duerme unos seis minutos antes de cada llamada, así que el primer indexado no termina en un tiempo razonable. Con el PAT son 5.000 peticiones por hora y el escaneo es real.
+
+**Creación.** GitHub no ofrece API ni CLI para crear un PAT *fine-grained*: se crea en <https://github.com/settings/personal-access-tokens/new> con *Token name* `domincipe-ci`, *Expiration* de **90 días**, *Repository access* → **Only select repositories** → `domincipe`, y en *Repository permissions* exactamente estos cuatro y ningún otro:
+
+| Permiso | Nivel | Para qué |
+|---|---|---|
+| `Contents` | Read-only | Leer el `Jenkinsfile` y el árbol del repositorio al construir |
+| `Pull requests` | Read-only | Descubrir los PRs y la cabeza de cada uno (`GET /repos/{owner}/{repo}/pulls`) |
+| `Commit statuses` | Read and write | Publicar el resultado en el commit (`POST /repos/{owner}/{repo}/statuses/{sha}`) |
+| `Metadata` | Read-only | Obligatorio: GitHub lo añade solo en cuanto se concede cualquier otro |
+
+`Metadata` se marca sola; las otras tres no vienen por defecto. Un PAT clásico con `repo:status` **no** sirve, porque no descubre PRs (design D7).
+
+**Caducidad y rotación.** El token en uso se creó el **2026-11-17** con caducidad de 90 días, el **2027-02-15**; desde esa fecha el pipeline deja de publicar estado, así que se renueva antes. Rotar no exige borrar volúmenes ni tocar el job:
+
+1. Crear el token nuevo con el mismo alcance que la tabla.
+2. Escribirlo en `ops/jenkins/.env`, que es el único sitio donde vive (ignorado por la regla `.env` de `.gitignore`):
+
+   ```bash
+   GITHUB_TOKEN=github_pat_...
+   ```
+
+3. `docker compose -f ops/jenkins/docker-compose.yml up -d --wait` — Compose recrea el contenedor al cambiar su entorno y JCasC reescribe la credencial al arrancar. Comprobado el **2026-11-17**: tras cambiar el valor, `up -d` recrea el contenedor (ID y `Created` nuevos) y el secreto de `github-token` en `credentials.xml` pasa de 58 a 166 caracteres de ciphertext, sin `down -v`.
+4. Verificar con los dos `curl` de abajo y, cuando exista el `Jenkinsfile`, con un escaneo del job.
+5. Revocar el token anterior en GitHub **después** del paso 4, nunca antes: hasta que el nuevo funciona, el viejo es la única credencial válida.
+
+**Verificación del alcance.** El token se lee del `.env` para que no acabe en el historial del shell ni en la salida de ningún comando:
+
+```bash
+set -a; . ops/jenkins/.env; set +a
+
+# Pull requests: read + Metadata: read -> 200 con la lista de PRs
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H 'Accept: application/vnd.github+json' \
+  https://api.github.com/repos/dominguezvazquezdavid/domincipe/pulls
+
+# Commit statuses: write -> 201, y el estado aparece en el commit. El sha tiene
+# que existir ya en GitHub: se publica sobre un commit del remoto, no local
+SHA=$(git rev-parse origin/develop)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H 'Accept: application/vnd.github+json' \
+  "https://api.github.com/repos/dominguezvazquezdavid/domincipe/statuses/$SHA" \
+  -d '{"state":"success","context":"domincipe/pat-check","description":"PAT scope check"}'
+```
+
+Esperado: `200` y `201`. Cualquier otro código es un permiso mal puesto y dice cuál: en el primero, *Pull requests* o *Metadata*; en el segundo, *Commit statuses*. `Contents: read` no tiene comprobación propia aquí: lo ejerce el propio build al clonar.
 
 ---
 
