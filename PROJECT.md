@@ -73,10 +73,10 @@ Observabilidad (siempre activa en local):
 | Router | React Router | 8.5.1 | exige React ≥ 19.2.7 y Node ≥ 22.22.0 |
 | Testing frontend | Vitest + RTL + Playwright | 5.1.0 / 16.3.3 / 1.65.0 | cobertura con `@vitest/coverage-v8` |
 | Lint frontend | ESLint + `typescript-eslint` | 10.14.0 / 8.72.2 | configuración plana |
-| CI/CD | Jenkins | LTS | corre en Docker |
+| CI/CD | Jenkins | 2.580.2 LTS | imagen propia `ops/jenkins/Dockerfile` (Temurin 21.0.13+9, Maven 3.9.16, Node.js 22.23.5, `buildctl`, Syft y Trivy) con los plugins fijados en `ops/jenkins/plugins.txt`; corre en Docker |
 | Contenedores | Docker Engine + Compose | 29.10.0 / v5.7.1 | plugin `docker compose`; `up --wait` y healthchecks en todos los servicios |
-| Imágenes | Kaniko | — | sin Docker-in-Docker |
-| SBOM / escaneo | Syft + Trivy | — | rompe build si HIGH/CRITICAL |
+| Imágenes | BuildKit rootless | 0.35.0 | `moby/buildkit:v0.35.0-rootless` como `buildkitd`; `buildctl` construye sin daemon ni socket; Kaniko se descarta porque está archivado desde el 2025-06-03 |
+| SBOM / escaneo | Syft + Trivy | 1.57.2 / 0.76.2 | CycloneDX con `syft`; `trivy` rompe el build si HIGH/CRITICAL |
 | Observabilidad (métricas) | Micrometer + Prometheus | Prometheus 3.16.0 | `/actuator/prometheus` en los seis servicios; *scrape* cada 15 s por DNS de `obs-net` |
 | Dashboards | Grafana | 13.3.1 | puerto 3000; sin dashboards aprovisionados todavía |
 | UI de Kafka | Kafka UI (`kafbat/kafka-ui`) | 1.5.0 | fork mantenido de `provectuslabs/kafka-ui`; puerto 8087 |
@@ -94,6 +94,9 @@ Imágenes base de los Dockerfiles verificadas el 2026-11-16 en el registro de Do
 Imágenes de la pila de observabilidad verificadas el 2026-11-17 contra Docker Hub: `prom/prometheus:v3.16.0` y `grafana/grafana:13.3.1` son las últimas publicadas y su digest **coincide** con el del tag `latest`; `kafbat/kafka-ui:v1.5.0` es la última release del proyecto. Con esas tres versiones, `docker compose up --wait` deja la pila sana y `/api/v1/targets` de Prometheus devuelve los seis objetivos en estado `up` (tareas 8.1 y 8.2).
 
 Las imágenes de las dependencias que fija `ops/compose/docker-compose.base.yml` coinciden con esta tabla y se comprobaron en el entorno en marcha el 2026-11-17: `postgres:16.16-alpine` (postgres y postgres-init), `axllent/mailpit:v1.33.1`, `apache/kafka:4.4.0` (por `KAFKA_IMAGE`, también en kafka-init), `versity/versitygw:v1.11.0` (por `S3_IMAGE`) y `amazon/aws-cli:2.40.3` (cliente con el que versity-init crea el bucket).
+
+Versiones de CI verificadas el 2026-11-17 contra Docker Hub y GitHub: Jenkins **2.580.2** LTS (`jenkins/jenkins:2.580.2-lts-jdk21`, digest `sha256:74401de6…`, release 2026-10-28), BuildKit rootless **0.35.0** (`moby/buildkit:v0.35.0-rootless`, digest `sha256:5987568f…`, release 2026-11-11), Syft **1.57.2** (`anchore/syft:v1.57.2`, digest `sha256:e97e20b6…`, release 2026-11-16) y Trivy **0.76.2** (`aquasec/trivy:0.76.2`, digest `sha256:8f6bb947…`, release 2026-11-05). La imagen del controlador (`ops/jenkins/Dockerfile`) declara las seis versiones de la toolchain en `ARG` y las afirma durante el build: dentro de la imagen `java -version` reporta Temurin 21.0.13+9 —el JDK que ya trae la etiqueta `-jdk21`, idéntico al local, por eso no se reinstala—, `mvn -v` 3.9.16, `node -v` 22.23.5, `buildctl --version` 0.35.0, `syft version` 1.57.2 y `trivy --version` 0.76.2 (tarea 2.1). Los **76** plugins fijados en `ops/jenkins/plugins.txt` son exactamente los que el controlador carga, versión a versión, tras un arranque en frío (tarea 2.2).
+
 
 ## 5. Bounded contexts (servicios y responsabilidades)
 

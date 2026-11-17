@@ -145,7 +145,7 @@ trivy image --input /out/auth-service \
 
 ### D5. Imagen propia de Jenkins con la toolchain dentro
 
-`ops/jenkins/Dockerfile` parte de `jenkins/jenkins:2.580.2-lts-jdk21` y añade, con versión explícita y verificable: Temurin 21.0.13 (el JDK del proyecto), Maven 3.9.16 (la versión que fija el wrapper), Node.js 22.23.5 (el mínimo del frontend), `buildctl` 0.35.0 (binario estático descargado de la release oficial) y los binarios de Syft 1.57.2 y Trivy 0.76.2.
+`ops/jenkins/Dockerfile` parte de `jenkins/jenkins:2.580.2-lts-jdk21` y añade, con versión explícita y verificable: Maven 3.9.16 (la versión que fija el wrapper), Node.js 22.23.5 (el mínimo del frontend), `buildctl` 0.35.0 (binario estático descargado de la release oficial) y los binarios de Syft 1.57.2 y Trivy 0.76.2. **Temurin 21.0.13 no se instala**: la etiqueta `-jdk21` ya lo trae como `JAVA_HOME` (`/opt/java/openjdk`, comprobado con `java -version` en la imagen base), así que el Dockerfile lo declara en un `ARG` y lo **afirma** durante el build; un segundo JDK solo añadiría peso y una segunda fuente de verdad sobre cuál usa el build. El mismo criterio se aplica a las otras cinco versiones: cada una se afirma al instalarse, de modo que una etiqueta base que derive rompe la construcción en vez de producir una imagen silenciosamente distinta (tarea 2.1).
 
 *Por qué:* el pipeline tiene que hacer exactamente lo mismo que hace el mantenedor en local; cualquier diferencia de versión entre «mi máquina» y «el CI» convierte el verde en una opinión. Se descarta ejecutar cada herramienta en su propio contenedor (`maven:…`, `node:…`) porque eso exige un runtime de contenedores dentro del pipeline, es decir, lo que D1 evita.
 
