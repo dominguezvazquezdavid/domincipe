@@ -41,7 +41,7 @@ web-frontend (React) ──► api-gateway ──┬─► auth-service
                                                 notification-service (consumer)
 
 Persistencia:
-  - PostgreSQL 16 (database-per-service)
+  - PostgreSQL 16.16 (database-per-service)
   - Versity S3 Gateway (S3-compatible sobre POSIX, imágenes de recetas)
   - Mailpit (SMTP fake para email, con UI web y API)
 
@@ -58,7 +58,7 @@ Observabilidad (siempre activa en local):
 | Framework | Spring Boot | 4.1.2 | línea 4.x, soportada hasta 2027-07-31; Java 21 |
 | Build | Maven | 3.9.16 (wrapper) | multi-módulo; parent POM en raíz |
 | Migraciones | Flyway | última | por servicio |
-| Persistencia | PostgreSQL | 16 | un schema por servicio, escalable a DB separada |
+| Persistencia | PostgreSQL | 16.16 | imagen `postgres:16.16-alpine`; un schema por servicio, escalable a DB separada |
 | Mensajería | Apache Kafka | 4.4.0 KRaft | imagen oficial `apache/kafka:4.4.0`; sin ZooKeeper |
 | Almacenamiento de objetos | Versity S3 Gateway | 1.11.0 | S3 sobre POSIX; puerto 7070 |
 | Email fake | Mailpit | 1.33.1 | SMTP en 1025, UI/API en 8025 |
@@ -74,9 +74,13 @@ Observabilidad (siempre activa en local):
 | Testing frontend | Vitest + RTL + Playwright | 5.1.0 / 16.3.3 / 1.65.0 | cobertura con `@vitest/coverage-v8` |
 | Lint frontend | ESLint + `typescript-eslint` | 10.14.0 / 8.72.2 | configuración plana |
 | CI/CD | Jenkins | LTS | corre en Docker |
+| Contenedores | Docker Engine + Compose | 29.10.0 / v5.7.1 | plugin `docker compose`; `up --wait` y healthchecks en todos los servicios |
 | Imágenes | Kaniko | — | sin Docker-in-Docker |
 | SBOM / escaneo | Syft + Trivy | — | rompe build si HIGH/CRITICAL |
-| Observabilidad | Micrometer + Prometheus + Grafana + Loki + Tempo | — | — |
+| Observabilidad (métricas) | Micrometer + Prometheus | Prometheus 3.16.0 | `/actuator/prometheus` en los seis servicios; *scrape* cada 15 s por DNS de `obs-net` |
+| Dashboards | Grafana | 13.3.1 | puerto 3000; sin dashboards aprovisionados todavía |
+| UI de Kafka | Kafka UI (`kafbat/kafka-ui`) | 1.5.0 | fork mantenido de `provectuslabs/kafka-ui`; puerto 8087 |
+| Trazas y logs | Loki + Tempo | — | pendiente (roadmap §10): el change `project-skeleton` solo levanta métricas |
 | SDD | OpenSpec (`@fission-ai/openspec`) | 2.0.0 | skills en `.agents/skills/`; requiere **Node ≥ 22.12.0**, el proyecto fija 22.22.0 |
 
 Versiones verificadas en la tarea 1.2 (2026-11-12) contra Maven Central y Docker Hub: Spring Boot **4.1.2**, springdoc-openapi **3.2.0** y `apache/kafka:4.4.0`. Se descarta la línea 3.5 (última 3.5.16) por estar fuera de soporte OSS desde el 2026-06-30; springdoc 2.x (última 2.10.0) solo aplica a Spring Boot 3.x.
@@ -86,6 +90,10 @@ Versiones del frontend verificadas el 2026-11-12 en el registro de npm: React **
 Almacenamiento de objetos: **Versity S3 Gateway 1.11.0** (`versity/versitygw:v1.11.0`, digest `sha256:8319a530…`) verificado el 2026-11-12; MinIO se descarta porque sus imágenes oficiales ya no se publican (Docker Hub 404, Quay y ghcr sin manifiesto) y su último release upstream es de octubre de 2025. Toolchain local: Temurin **21.0.13+9** y Maven **3.9.16**.
 
 Imágenes base de los Dockerfiles verificadas el 2026-11-16 en el registro de Docker Hub: `maven:3.9.16-eclipse-temurin-21-alpine` (coincide con el Maven del wrapper), `eclipse-temurin:21.0.13_9-jre-alpine` (coincide con el Temurin local), `node:22.23.5-alpine` (cumple el mínimo 22.22.0 del frontend; la 22.24.0 aún no existe) y `nginxinc/nginx-unprivileged:1.30.6-alpine` (línea estable, UID 101 y puerto 8080).
+
+Imágenes de la pila de observabilidad verificadas el 2026-11-17 contra Docker Hub: `prom/prometheus:v3.16.0` y `grafana/grafana:13.3.1` son las últimas publicadas y su digest **coincide** con el del tag `latest`; `kafbat/kafka-ui:v1.5.0` es la última release del proyecto. Con esas tres versiones, `docker compose up --wait` deja la pila sana y `/api/v1/targets` de Prometheus devuelve los seis objetivos en estado `up` (tareas 8.1 y 8.2).
+
+Las imágenes de las dependencias que fija `ops/compose/docker-compose.base.yml` coinciden con esta tabla y se comprobaron en el entorno en marcha el 2026-11-17: `postgres:16.16-alpine` (postgres y postgres-init), `axllent/mailpit:v1.33.1`, `apache/kafka:4.4.0` (por `KAFKA_IMAGE`, también en kafka-init), `versity/versitygw:v1.11.0` (por `S3_IMAGE`) y `amazon/aws-cli:2.40.3` (cliente con el que versity-init crea el bucket).
 
 ## 5. Bounded contexts (servicios y responsabilidades)
 
@@ -109,9 +117,13 @@ Imágenes base de los Dockerfiles verificadas el 2026-11-16 en el registro de Do
 ├── AGENTS.md            # reglas del agente IA
 ├── LICENSE              # MIT
 ├── .gitignore
+├── .gitattributes       # normalización de fin de línea (blob en LF, *.cmd en CRLF)
+├── .dockerignore        # contexto de build que reciben los Dockerfiles
 ├── .editorconfig
 ├── .env.example         # plantilla de configuración (.env real ignorado)
-├── .mvn/                # Maven Wrapper (versión de Maven fijada)
+├── .mvn/                # Maven Wrapper (versión fijada y suma SHA-256 del zip)
+├── mvnw                 # lanzador del wrapper (POSIX)
+├── mvnw.cmd             # lanzador del wrapper (Windows; se guarda en LF y sale en CRLF)
 ├── openspec/            # SDD (generado por `openspec init`)
 │   ├── config.yaml      # config del proyecto (schema: spec-driven)
 │   ├── specs/           # specs as-built
@@ -120,7 +132,7 @@ Imágenes base de los Dockerfiles verificadas el 2026-11-16 en el registro de Do
 ├── .agents/             # skills de OpenSpec 2.0 (compartidas por todas las herramientas)
 │   └── skills/
 ├── config/              # configuración compartida de lint (Checkstyle)
-├── scripts/             # verificaciones del esqueleto (módulos, imágenes, entorno)
+├── scripts/             # verificaciones: módulos, imágenes, entorno y apagado ordenado
 ├── apps/
 │   ├── web-frontend/    # React + Vite
 │   ├── api-gateway/
@@ -132,11 +144,13 @@ Imágenes base de los Dockerfiles verificadas el 2026-11-16 en el registro de Do
 │       └── notification-service/
 ├── libs/
 │   ├── common-dto/
-│   └── common-observability/
+│   ├── common-observability/
+│   └── common-test-support/   # anotaciones compuestas de test (§7, D14)
 ├── ops/                 # operación del proyecto (local y CI)
-│   ├── docker/          # Dockerfiles
+│   ├── docker/          # Dockerfiles (java-service, web-frontend) y nginx.conf
 │   ├── compose/         # docker-compose.{base,dev,obs}.yml
-│   └── jenkins/         # Jenkinsfile, shared library
+│   │   └── obs/         # prometheus.yml (scrape de los seis servicios)
+│   └── jenkins/         # pendiente: Jenkinsfile y shared library (change de CI)
 └── pom.xml              # parent Maven multi-módulo
 ```
 
