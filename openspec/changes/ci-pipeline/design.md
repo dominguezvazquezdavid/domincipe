@@ -13,10 +13,12 @@ Versiones e imágenes fijadas en este change, verificadas contra Docker Hub y Gi
 
 | Componente | Versión | Tag / digest | Fuente |
 |---|---|---|---|
-| Jenkins LTS | 2.580.2 | `jenkins/jenkins:2.580.2-lts-jdk21`, índice `sha256:74401de6…` | Docker Hub API, push 2026-10-28 |
-| BuildKit rootless | 0.35.0 | `moby/buildkit:v0.35.0-rootless`, índice `sha256:5987568f…` | GitHub Releases (2026-11-11) + Docker Hub |
-| Syft | 1.57.2 | `anchore/syft:v1.57.2`, índice `sha256:e97e20b6…` | GitHub Releases (2026-11-16) + Docker Hub |
-| Trivy | 0.76.2 | `aquasec/trivy:0.76.2`, índice `sha256:8f6bb947…` | GitHub Releases (2026-11-05) + Docker Hub |
+| Jenkins LTS | 2.580.2 | `jenkins/jenkins:2.580.2-lts-jdk21`, índice `sha256:74401de6a6f92e1afe1b02d1c8e3d0c33f263bfb5275dd8813f9150355f2367b` | GitHub `jenkinsci/jenkins` tag `jenkins-2.580.2` (2026-10-28) + Docker Hub, push 2026-10-28 |
+| BuildKit rootless | 0.35.0 | `moby/buildkit:v0.35.0-rootless`, índice `sha256:5987568f92dafbfb679879de59c1cd8d26597f5f6635c314e166164e2615870c` | GitHub Releases `moby/buildkit v0.35.0` (2026-11-11) + Docker Hub, push 2026-11-11 |
+| Syft | 1.57.2 | `anchore/syft:v1.57.2`, índice `sha256:e97e20b6e6d1699c60296b66ab337941724f9bd06ac279d893eda89601fc4b2a` | GitHub Releases `anchore/syft v1.57.2` (2026-11-16) + Docker Hub, push 2026-11-16 |
+| Trivy | 0.76.2 | `aquasec/trivy:0.76.2`, índice `sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb` | GitHub Releases `aquasecurity/trivy v0.76.2` (2026-11-05) + Docker Hub, push 2026-11-05 |
+
+Comprobación del **2026-11-17 10:05 UTC**: `docker manifest inspect` resuelve los cuatro tags y el digest del índice, obtenido con `docker buildx imagetools inspect --format '{{.Manifest.Digest}}'` y contrastado con la API de Docker Hub, coincide con la tabla. En GitHub, `gh release view` confirma que las cuatro releases existen, publicadas en las fechas anotadas y ninguna en estado borrador ni *prerelease*.
 
 ## Goals / Non-Goals
 
@@ -52,15 +54,26 @@ docker run --name buildkitd -d \
 
 *Por qué:* Kaniko quedó **archivado el 2025-06-03** («no longer developed or maintained», README del repositorio), y un pipeline cuyo contrato es romper el build con CVEs HIGH/CRITICAL no puede apoyarse en un builder sin parches de seguridad. BuildKit es la implementación de referencia del build que usan Docker y buildx, soporta nuestros Dockerfiles sin cambios y exporta OCI con nombre de referencia, que es lo que permite la cadena *daemonless* de D3/D4.
 
-*Qué se gana y qué se paga (verificado en el `Dockerfile` y `docs/rootless.md` de la v0.35.0):* la imagen rootless define `USER 1000:1000`, `ENTRYPOINT ["rootlesskit","buildkitd"]` y un mapeo `subuid/subgid` `100000:65536`, así que **el builder no corre como root** y un escape no devuelve UID 0. A cambio: los tres `--security-opt` no son opcionales (AppArmor está activo en el host), el *snapshotter* `overlayfs` exige kernel ≥ 5.11 (cumplido) y la red del worker va siempre en modo `host`, de modo que los `RUN` no quedan aislados por red entre builds. Todo eso queda escrito en `PROJECT.md` §4 y no se maquilla.
+*Qué se gana y qué se paga (verificado en el `Dockerfile` y `docs/rootless.md` de la v0.35.0):* la imagen rootless define `USER 1000:1000`, `ENTRYPOINT ["rootlesskit","buildkitd"]` y un mapeo `subuid/subgid` `100000:65536`, así que **el builder no corre como root** y un escape no devuelve UID 0. A cambio: los tres `--security-opt` no son opcionales (AppArmor está activo en el host y `systempaths` hace falta aunque no lo esté, ver más abajo), el *snapshotter* `overlayfs` exige kernel ≥ 5.11 (cumplido) y la red del worker va siempre en modo `host`, de modo que los `RUN` no quedan aislados por red entre builds. Todo eso queda escrito en `PROJECT.md` §4 y no se maquilla.
+
+*Comprobado en el host de desarrollo el 2026-11-17 (tarea 1.4):* el fallo **se reproduce**. Un `buildkitd` arrancado solo con `seccomp=unconfined` y `apparmor=unconfined`, con volumen de estado limpio, falla en el primer `RUN` del `java-service.Dockerfile`:
+
+```text
+#8 [runtime 2/4] RUN addgroup -S -g 10001 domincipe && adduser -S -H -u 10001 -G domincipe -s /sbin/nologin domincipe
+#8 0.025 runc run failed: unable to start container process: error during container init: error mounting "proc" to rootfs at "/proc": mount src=proc, dst=/proc, dstFd=/proc/thread-self/fd/16, flags=MS_NOSUID|MS_NODEV|MS_NOEXEC: operation not permitted
+```
+
+El mismo build —mismo commit, mismo volumen limpio, sin caché— contra un `buildkitd` con los **tres** flags termina en verde y ejecuta los cuatro `RUN` (`#8 DONE 0.1s`, `#14 DONE 28.2s`). El flag, por tanto, no es cosmético, y el texto de `docs/rootless.md` (`mount proc:/proc (via /proc/self/fd/6), flags: 0xe: operation not permitted`) describe la misma causa con el formato de un `runc` anterior.
+
+*Trampa de verificación:* el motor de este host (Docker `29.10.0`) **no** refleja `systempaths=unconfined` en `.HostConfig.SecurityOpt` de `docker inspect`; un contenedor arrancado con los tres flags muestra solo `seccomp` y `apparmor`. La comprobación válida es un `RUN` completo, no el `inspect`.
 
 *Alternativas consideradas:* (a) **Kaniko 1.24.0**, que no necesita privilegios de contenedor pero está sin mantenimiento; (b) **BuildKit sin rootless con `--privileged`**, más simple y rápido pero con root equivalente del host dentro del builder; (c) **`buildx` con el socket de Docker del host**, que rompe el «sin Docker-in-Docker» de §4 y da al pipeline control total del daemon. Se descartan por ese orden de motivos.
 
 ### D2. Dos contenedores y un socket Unix, no TCP
 
-`ops/jenkins/docker-compose.yml` declara dos servicios en una red propia (`ci-net`): `buildkitd` y `jenkins`. El Jenkinsfile no habla con un daemon Docker: habla con `buildkitd` por su socket, compartido con un **volumen nombrado montado en `/run/user/1000`** en ambos contenedores. La imagen rootless ya crea ese directorio con `XDG_RUNTIME_DIR=/run/user/1000` y `BUILDKIT_HOST=unix:///run/user/1000/buildkit/buildkitd.sock`; Docker inicializa el volumen copiando la propiedad del directorio de la imagen (UID 1000), que coincide con el UID del usuario `jenkins` de la imagen oficial.
+`ops/jenkins/docker-compose.yml` declara dos servicios en una red propia (`ci-net`): `buildkitd` y `jenkins`. El Jenkinsfile no habla con un daemon Docker: habla con `buildkitd` por su socket, compartido con un **volumen nombrado montado en `/run/user/1000`** en ambos contenedores. La imagen rootless ya crea ese directorio con `XDG_RUNTIME_DIR=/run/user/1000` y `BUILDKIT_HOST=unix:///run/user/1000/buildkit/buildkitd.sock`; Docker inicializa el volumen copiando la propiedad del directorio de la imagen, que en `v0.35.0-rootless` es **`1000:0`** (modo 755) —no `1000:1000`—. `buildkitd` crea debajo `/run/user/1000/buildkit` (`1000:1000`, modo 1700) y el socket (`1000:1000`, modo 660). El usuario `jenkins` de la imagen oficial es UID 1000, así que es **propietario** del directorio y del socket aunque el GID del directorio no coincida.
 
-La implementación **verifica la propiedad** antes de cablear el pipeline: `stat -c '%u:%g' /run/user/1000` y del socket dentro de `jenkins` deben devolver `1000:1000`. El *copy-up* del volumen solo hereda la propiedad cuando la ruta existe en la imagen; si la ruta se crea dentro del contenedor, nace `root:root` y el cliente no puede abrir el socket.
+La implementación **verifica el acceso real** antes de cablear el pipeline, no la propiedad literal: `stat -c '%u:%g' /run/user/1000` dentro de `jenkins` da `1000:0`, el del socket da `1000:1000`, y `buildctl debug workers` ejecutado como UID 1000 lista el worker. El *copy-up* del volumen solo hereda la propiedad cuando la ruta existe en la imagen; si la ruta se crea dentro del contenedor, nace `root:root` y el cliente no puede abrir el socket. Comprobado en el spike de la tarea 1.3: un contenedor con el usuario por defecto de la imagen (`uid=1000 gid=1000`) consultó `debug workers` contra el volumen compartido y obtuvo el worker `6cr31sprn7qbniqtjsimsrrr7`.
 
 *Por qué no TCP:* expondría `buildkitd` en la red sin autenticación; el socket Unix no abre puerto y la autorización es la del sistema de ficheros. Si en la implementación el volumen no conserva la propiedad esperada, el plan B está documentado: `rootlesskit buildkitd --addr tcp://0.0.0.0:1234` + `buildctl --addr tcp://buildkitd:1234` en la red interna.
 
@@ -80,7 +93,7 @@ buildctl --addr unix:///run/user/1000/buildkit/buildkitd.sock build \
   --opt build-arg:GIT_SHA=<sha> \
   --import-cache type=local,src=/cache \
   --export-cache type=local,dest=/cache,mode=max \
-  --output type=oci,name=domincipe/auth-service:<sha>,domincipe/auth-service:latest,dest=/out/auth-service.tar
+  --output 'type=oci,dest=/out/auth-service.tar,"name=domincipe/auth-service:<sha>,domincipe/auth-service:latest"'
 
 # web-frontend: mismo esqueleto, con filename=web-frontend.Dockerfile y además
 # --opt build-arg:VITE_API_BASE_URL=<url>, que su Dockerfile exige: sin él el
@@ -89,25 +102,44 @@ buildctl --addr unix:///run/user/1000/buildkit/buildkitd.sock build \
 
 Las dos referencias viajan **dentro** del archivo OCI (`org.opencontainers.image.ref.name`), así que hay referencia inmutable sin daemon y sin registry. Van en **un único `name=` separado por comas**, no en dos `--output`: el exporter OCI de BuildKit normaliza ese atributo con `strings.Split(name, ",")` y escribe un descriptor por nombre (`exporter/oci/export.go`, `normalizedNames`), mientras que dos salidas distintas producirían dos archivos que podrían divergir.
 
-*La caché y `/out` son del cliente:* `--import-cache`/`--export-cache type=local` los lee y los escribe **`buildctl`**, no `buildkitd`, y lo mismo ocurre con `dest=/out`. Por eso `/cache` y `/out` se montan en el contenedor de Jenkins, y `buildkitd` solo conserva su estado en `/home/user/.local/share/buildkit`. La etapa vacía `/out/*.tar` antes de construir: los tarballs son por build y, sin eso, el volumen crece sin límite.
+*La lista de nombres hay que entrecomillarla como campo CSV.* `buildctl` no parte `--output` por comas a lo bruto: lo parsea con `go-csvvalue` (`cmd/buildctl/build/output.go`, `parseOutputCSV`), así que la coma que separa los dos nombres tiene que viajar dentro de un campo entrecomillado. Las tres formas se probaron contra el builder el 2026-11-17:
+
+| Forma | Resultado |
+|---|---|
+| `--output 'type=oci,dest=…,name=a:sha,a:latest'` | `error: invalid value a:latest` (el segundo nombre se lee como atributo sin `=`) |
+| `--output 'type=oci,dest=…,name="a:sha,a:latest"'` | `error: parse error on line 1, column 32: bare " in non-quoted-field` (la comilla debe abrir el campo, no el valor) |
+| `--output 'type=oci,dest=…,"name=a:sha,a:latest"'` | correcto: `index.json` con `ref.name` `sha` y `latest` apuntando al mismo digest |
+
+Repetir la clave (`name=a:sha,name=a:latest`) tampoco sirve: `parseOutputCSV` la guarda en un mapa y la última gana, así que el archivo sale con **una sola** referencia —comprobado en el spike—. El entrecomillado del campo es, por tanto, parte del contrato del pipeline y no un detalle de estilo.
+
+*La caché y `/out` son del cliente:* `--import-cache`/`--export-cache type=local` los lee y los escribe **`buildctl`**, no `buildkitd`, y lo mismo ocurre con `dest=/out`. Por eso `/cache` y `/out` se montan en el contenedor de Jenkins, y `buildkitd` solo conserva su estado en `/home/user/.local/share/buildkit`. La etapa vacía `/out` antes de construir —tarballs y layouts extraídos—: los artefactos son por build y, sin eso, el volumen crece sin límite.
 
 *Alternativa considerada:* `type=docker` (tarball cargable con `docker load`). Se descarta porque exige un daemon para verificar las etiquetas y no aporta nada al escaneo.
 
-### D4. SBOM y escaneo sobre el archivo OCI
+### D4. SBOM y escaneo sin daemon sobre el artefacto OCI
 
-Sobre el `.tar` de D3, sin daemon:
+Sobre el artefacto de D3, sin daemon. Syft lee el `.tar` directamente; Trivy 0.76.2 **no**: su `--input` acepta un tar de `docker save` (con `manifest.json`) o un **layout OCI en directorio**, no un archivo OCI. El spike de la tarea 1.3 lo comprobó con el artefacto real y el error exacto es:
+
+```text
+FATAL Fatal error run error: image scan error: scan error: unable to initialize a scan service: unable to initialize artifact: unable to initialize archive image: 2 errors occurred:
+  * unable to open /out/api-gateway.tar as a Docker image: file manifest.json not found in tar
+  * unable to open /out/api-gateway.tar as an OCI Image: stat /out/api-gateway.tar/index.json: not a directory
+```
+
+Por eso el pipeline extrae el archivo una vez y escanea el layout, sin un segundo export ni un daemon:
 
 ```bash
 syft --from oci-archive /out/auth-service.tar \
   -o cyclonedx-json=/out/sbom/auth-service.cdx.json
-trivy image --input /out/auth-service.tar \
+mkdir -p /out/auth-service && tar -xf /out/auth-service.tar -C /out/auth-service
+trivy image --input /out/auth-service \
   --ignorefile /workspace/ops/jenkins/.trivyignore \
   --severity HIGH,CRITICAL --exit-code 1 --format json --output /out/trivy/auth-service.json
 ```
 
 *Sobre el fichero de excepciones:* el flag es `--ignorefile` (`IgnoreFileFlag`, nombre `ignorefile`, default `result.DefaultIgnoreFile`, es decir el `.trivyignore` del directorio de trabajo). Se pasa **siempre** con ruta absoluta al fichero versionado, tanto porque el directorio de trabajo del build no es el del repositorio como porque Trivy valida la ruta: si el fichero no existe, falla con `ignore file not found` en lugar de ignorar excepciones en silencio.
 
-`syft --from oci-archive` es la forma documentada por Anchore («Use a tarball from disk for OCI archives»); el `--input` de Trivy está definido en su código como «input file path instead of image name» (archivo de imagen local). La tarea 1.3 comprueba ambos contra el archivo real: si Trivy rechazara el archivo OCI, el plan B es exportar además un tarball `type=docker` del mismo build y escanear ese, sin cambiar el contrato de R3.
+*Resultado del spike (2026-11-17, `api-gateway` con `GIT_SHA=e6b4e32`, 103 MB de tar):* `syft --from oci-archive` genera CycloneDX con 1370 componentes; `trivy image --input <layout extraído>` sale con código 0 y detecta 1 MEDIUM (`CVE-2026-4738`, zlib de la base Alpine 3.24.4) y 0 HIGH/CRITICAL, así que el árbol actual pasaría el gate. Se descarta el plan B que se había anotado (exportar además un `type=docker` para escanear): la extracción no añade un segundo artefacto que pueda divergir y deja el `.tar` OCI como única fuente de verdad. El directorio extraído se borra junto al `.tar` en la limpieza de `/out` de cada build, para no duplicar el crecimiento del volumen.
 
 *Por qué:* es la única forma de cumplir §9 (SBOM + escaneo) manteniendo la promesa de R3 de no tocar el daemon. Escanear el archivo es además equivalente a escanear la imagen publicada, porque es exactamente el artefacto que se etiquetaría.
 
@@ -199,7 +231,7 @@ Al implementar se actualizan [PROJECT.md](../../../PROJECT.md) §4 (Jenkins 2.58
 - **[El builder rootless tarda en aceptar trabajo y `depends_on: service_healthy` lo confunde con un fallo]** → healthcheck con `buildctl debug workers` (o, si `buildctl` no está en la imagen, la presencia del socket) y `start_period` amplio; la tarea 3.1 comprueba antes qué probe es posible, y el primer paso del pipeline ejecuta `buildctl debug workers` para no medir la caché en frío.
 - **[Un `*IT.java` nuevo rompe el gate por falta de daemon]** → guarda `scripts/ci-suite-scope.sh` (D13) que falla nombrando los ficheros y la acción; montar el socket se descarta en R3.
 - **[Primer build sin caché muy lento]** → caché `type=local` en volumen persistente; la spec no fija tiempo máximo a propósito.
-- **[La caché y los tarballs crecen sin límite]** → la etapa vacía `/out/*.tar` antes de construir y el `README.md` documenta `buildctl prune` como mantenimiento; la retención de artefactos de Jenkins (D10) no cubre los volúmenes.
+- **[La caché y los artefactos crecen sin límite]** → la etapa vacía `/out` (tarballs y layouts extraídos) antes de construir y el `README.md` documenta `buildctl prune` como mantenimiento; la retención de artefactos de Jenkins (D10) no cubre los volúmenes.
 - **[La base de datos de Trivy se descarga en cada build o queda obsoleta si se fija]** → volumen de caché para la DB, sin fijar su versión: el gate debe valorar contra datos frescos.
 - **[Un falso positivo de Trivy bloquea PRs legítimos]** → `.trivyignore` versionado con justificación y actualización de la imagen base; nunca un parámetro que salte el escaneo.
 - **[El PAT caduca y el pipeline deja de publicar estado]** → alcance mínimo real (`Contents: read`, `Pull requests: read`, `Commit statuses: read and write`, `Metadata: read`), caducidad de 90 días anotada en el README y GitHub App como evolución (pregunta abierta).

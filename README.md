@@ -123,6 +123,25 @@ scripts/verify-shutdown.sh      # apagado ordenado con una petición en curso (r
 
 ---
 
+## Integración continua
+
+El CI es un stack local reproducible en `ops/jenkins/` (Jenkins LTS y un `buildkitd` rootless) que se levantará con `docker compose -f ops/jenkins/docker-compose.yml up --wait`. El contrato completo —pipeline, SBOM y escaneo— vive en el change `ci-pipeline` (`openspec/changes/ci-pipeline/`).
+
+### Requisitos del host para el builder rootless
+
+El builder (`moby/buildkit:v0.35.0-rootless`) corre sin `root` y sin `privileged`, pero depende de que el host permita *user namespaces* sin privilegios. Comprobado el **2026-11-17** en la máquina de desarrollo:
+
+| Comprobación | Valor verificado | Requisito |
+|---|---|---|
+| `sysctl user.max_user_namespaces` | `56066` | Valor > `0`. Si es `0`, `buildkitd` falla con `…/proc/sys/user/max_user_namespaces needs to be set to non-zero`; se corrige con `sysctl -w user.max_user_namespaces=<N>` |
+| `sysctl kernel.apparmor_restrict_unprivileged_userns` | `0` | `0` cuando el host usa AppArmor (Ubuntu 24.04 y posteriores). Con `1`, `buildkitd` falla con `fork/exec /proc/self/exe: permission denied`; se corrige añadiendo `kernel.apparmor_restrict_unprivileged_userns=0` en `/etc/sysctl.d/` y ejecutando `sudo sysctl -p` |
+| `/etc/subuid` | `domin:100000:65536` | Una entrada para el usuario del builder con un subrango de UIDs, que es el mapeo de los *user namespaces* (referencia: <https://rootlesscontaine.rs/getting-started/common/subuid/>) |
+| `/dev/fuse` | `crw-rw-rw- 1 root root 10, 229` | Presente y accesible. Solo lo usa el snapshotter `fuse-overlayfs` (kernel < 4.18); con kernel ≥ 5.11 el builder usa `overlayfs` |
+
+El host verificado cumple las cuatro condiciones (kernel `7.0.0-38-generic`, AppArmor activo). Además, el contenedor del builder necesita los tres `--security-opt` que documenta BuildKit v0.35.0 —`seccomp=unconfined`, `apparmor=unconfined` y `systempaths=unconfined`—: sin el último, cada `RUN` no puede montar su propio `/proc` y el build falla con `error mounting "proc" to rootfs at "/proc": … flags=MS_NOSUID|MS_NODEV|MS_NOEXEC: operation not permitted`. Reproducido el **2026-11-17** quitando ese flag: es la misma causa que el `mount proc:/proc (via /proc/self/fd/6), flags: 0xe: operation not permitted` de `docs/rootless.md`, con el formato de un `runc` más nuevo. Al comprobarlo, ojo: Docker 29.10.0 **no** muestra `systempaths=unconfined` en `docker inspect` aunque esté aplicado; la prueba válida es que un `RUN` llegue a ejecutarse.
+
+---
+
 ## Estructura del repositorio
 
 ```
