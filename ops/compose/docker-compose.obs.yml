@@ -1,0 +1,110 @@
+# Observability layer of the local environment (design D14). It declares no
+# `profiles:` on purpose: the stack is part of the environment, not an opt-in,
+# and .env declares COMPOSE_FILE with base + dev + obs, so the canonical
+# `docker compose up --wait` from the repository root starts it.
+#
+# Escape hatch for machines with few resources: leave this file out of the
+# COMPOSE_FILE list (or pass explicit -f flags), because an explicit -f wins
+# over COMPOSE_FILE.
+#
+# Every service here joins obs-net, the network it shares with the six Java
+# applications, which is how Prometheus resolves them by DNS name — the same
+# service-discovery model as the Kubernetes Services of PROJECT.md §9.
+# kafka-ui is the only one that also joins backend-net: the broker lives there
+# and the local environment keeps messaging reachable from backend-net only
+# (design D10).
+#
+# No volumes on purpose: this stack is a disposable development tool. Prometheus
+# rebuilds its time series on every start and this change provisions no
+# dashboard that would need to survive a restart.
+
+services:
+  prometheus:
+    # Version checked against Docker Hub: v3.16.0 is the digest `latest` points
+    # to (same sha256, verified 2026-11-17).
+    image: prom/prometheus:v3.16.0
+    restart: unless-stopped
+    # The image runs as nobody and its default command already reads
+    # /etc/prometheus/prometheus.yml, so the scrape configuration is mounted
+    # read-only on that exact path. The path is relative to this file.
+    volumes:
+      - ./obs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    healthcheck:
+      # The documented liveness endpoint of Prometheus, not a raw TCP probe: the
+      # server is healthy only when it answers HTTP.
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    stop_grace_period: 10s
+    networks:
+      - obs-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  grafana:
+    # Version checked against Docker Hub: 13.3.1 is the digest `latest` points to
+    # (same sha256, verified 2026-11-17).
+    image: grafana/grafana:13.3.1
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    healthcheck:
+      # /api/health answers 200 only once Grafana's own database is reachable,
+      # which is what tells a started container from a ready one.
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 10s
+    networks:
+      - obs-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  kafka-ui:
+    # Image fixed by this task. kafbat/kafka-ui is the maintained fork of the
+    # former provectuslabs/kafka-ui (PROJECT.md §3).
+    image: kafbat/kafka-ui:v1.5.0
+    restart: unless-stopped
+    environment:
+      KAFKA_CLUSTERS_0_NAME: domincipe
+      # The advertised listener of the base layer: the name only resolves inside
+      # backend-net, which is why this container joins that network too.
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8087:8080"
+    healthcheck:
+      # Actuator endpoint of the UI itself. Measured: it answers
+      # {"status":"UP"} even with no broker reachable, which is the right
+      # behaviour for a liveness probe of the container, not of Kafka.
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 10s
+    networks:
+      - obs-net
+      - backend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+# obs-net and backend-net are declared in the base layer; this file only adds
+# members to them, so the network definitions stay in a single place.

@@ -1,0 +1,26 @@
+# Scrape configuration of the local Prometheus (design D14).
+#
+# Every Java service exposes its Micrometer metrics in Prometheus text format on
+# /actuator/prometheus (service-runtime spec). Compose DNS resolves each name
+# inside obs-net, so neither a host port nor an IP is involved: the same
+# service-discovery model the Kubernetes deployment will use (PROJECT.md §9).
+#
+# One job keeps the file short; /api/v1/targets still reports one target per
+# service, each with its own state and its own `instance` label.
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: domincipe-services
+    # Actuator's Prometheus endpoint, not the default /metrics.
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          # Bounded contexts in the order of PROJECT.md §5, gateway last.
+          - auth-service:8080
+          - user-service:8080
+          - recipe-service:8080
+          - media-service:8080
+          - notification-service:8080
+          - api-gateway:8080
