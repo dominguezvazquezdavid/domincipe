@@ -140,6 +140,26 @@ El builder (`moby/buildkit:v0.35.0-rootless`) corre sin `root` y sin `privileged
 
 El host verificado cumple las cuatro condiciones (kernel `7.0.0-38-generic`, AppArmor activo). Además, el contenedor del builder necesita los tres `--security-opt` que documenta BuildKit v0.35.0 —`seccomp=unconfined`, `apparmor=unconfined` y `systempaths=unconfined`—: sin el último, cada `RUN` no puede montar su propio `/proc` y el build falla con `error mounting "proc" to rootfs at "/proc": … flags=MS_NOSUID|MS_NODEV|MS_NOEXEC: operation not permitted`. Reproducido el **2026-11-17** quitando ese flag: es la misma causa que el `mount proc:/proc (via /proc/self/fd/6), flags: 0xe: operation not permitted` de `docs/rootless.md`, con el formato de un `runc` más nuevo. Al comprobarlo, ojo: Docker 29.10.0 **no** muestra `systempaths=unconfined` en `docker inspect` aunque esté aplicado; la prueba válida es que un `RUN` llegue a ejecutarse.
 
+### Comprobación previa del host
+
+`scripts/ci-preflight.sh` reúne esos requisitos en una comprobación de solo lectura que se ejecuta **en el host**, nunca dentro de un contenedor: desde ahí, los sysctls y `/etc/subuid` que se leen no son los que consumirá `rootlesskit`, así que un verde en esa posición no significaría nada. Falla nombrando el requisito y el ajuste que lo corrige, en lugar de dejar que el problema aparezca como un error opaco del builder:
+
+```bash
+scripts/ci-preflight.sh
+```
+
+Comprueba, en orden:
+
+- `docker` y el plugin `docker compose` v2.
+- El kernel. Con 5.11 o posterior, BuildKit usa `overlayfs`; por debajo **no falla**: avisa de que el snapshotter pasará a `fuse-overlayfs`.
+- `user.max_user_namespaces > 0`.
+- `kernel.apparmor_restrict_unprivileged_userns = 0`. En un host sin AppArmor la clave no existe y no hay nada que comprobar.
+- Una entrada para el usuario actual en `/etc/subuid` y en `/etc/subgid`, por nombre o por UID/GID.
+- `/dev/fuse` presente y accesible. Solo es obligatorio si el kernel es anterior a 5.11; por encima, su ausencia queda como aviso.
+- El puerto de Jenkins libre. Lo resuelve con la precedencia de Compose —entorno, después `ops/jenkins/.env` y, si no hay ninguno, el `8095` del compose—, y si quien lo ocupa es este mismo stack ya levantado no lo trata como conflicto.
+
+Termina con código 0 cuando el host está listo, 1 cuando falta un requisito y 2 ante un uso incorrecto; debe salir 0 antes de `up`.
+
 ---
 
 ## Estructura del repositorio
