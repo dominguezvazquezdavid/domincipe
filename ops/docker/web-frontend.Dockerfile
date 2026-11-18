@@ -23,6 +23,17 @@ RUN npm run build
 # the SPA routing rules are added.
 FROM nginxinc/nginx-unprivileged:1.30.6-alpine AS runtime
 
+# The pinned tag is only rebuilt upstream when nginx or Alpine change, so its
+# packages lag behind the Alpine 3.24 patch releases while the tag stays the
+# current one. The vulnerability gate (design D9) fails the build when a fix is
+# already published, so the runtime stage upgrades the base packages here; the
+# tag remains pinned and an unreachable repository fails the build instead of
+# shipping a silently different image. UID 101 is the runtime user of the image,
+# so apk needs root for this step only.
+USER root
+RUN apk upgrade --no-cache
+USER 101
+
 # Short git SHA injected by scripts/build-images.sh and recorded as the OCI
 # revision label, so a running image can be traced back to its commit (D11).
 ARG GIT_SHA
