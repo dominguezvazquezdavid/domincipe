@@ -4,8 +4,8 @@
 // the retention of D10, the stages in the order D9 fixes and the always-post
 // that archives —, 5.2 and 5.3 filled the quality stages, 5.4 runs them at the
 // same time, 6.1 builds the seven images, 6.2 verifies their references and 6.3
-// that the local and CI build paths share the same contract.
-// Tasks 7.x fill the SBOM and scan stages.
+// that the local and CI build paths share the same contract. 7.1 inventories
+// every archive with Syft; task 7.2 fills the scan stage.
 // Nothing here omits tests or lowers a threshold: those options are exactly
 // what PROJECT.md §8 forbids.
 //
@@ -143,9 +143,39 @@ pipeline {
                 }
             }
         }
+        // Syft reads the OCI archive the Images stage wrote, so the inventory
+        // needs neither a daemon nor a second export (design D4, task 7.1). The
+        // archives themselves are the list: an image that was not built cannot
+        // get an SBOM, and the matrix is not repeated here. /out is emptied at
+        // the start of Images, so no archive from a previous build can slip in.
+        // Output goes to the workspace `sbom/` directory, which is the glob the
+        // always-post archives (ciArchiveReports.groovy, design D10).
         stage('SBOM') {
             steps {
-                echo 'Syft inventory lands in task 7.1.'
+                // --source-name and --source-version fill the CycloneDX
+                // metadata component: on its own, Syft names an archive by its
+                // path, and the spec requires each SBOM to identify its image
+                // and the commit that produced it. The short sha is derived as
+                // in the Images stage, so it matches the archive's tag.
+                sh '''
+                    rm -rf sbom
+                    mkdir -p sbom
+                    set -- /out/*.tar
+                    if [ ! -f "$1" ]; then
+                        echo 'SBOM: no OCI archive under /out; the Images stage has to run first' >&2
+                        exit 1
+                    fi
+                    sha="$(git rev-parse --short HEAD)"
+                    for archive in "$@"; do
+                        image="${archive##*/}"
+                        image="${image%.tar}"
+                        echo "SBOM: ${image} at ${sha}"
+                        syft --quiet --from oci-archive "$archive" \
+                          --source-name "domincipe/${image}" \
+                          --source-version "$sha" \
+                          -o "cyclonedx-json=sbom/${image}.cdx.json"
+                    done
+                '''
             }
         }
         stage('Scan') {
