@@ -1,0 +1,64 @@
+// Pull-request gate of the Domincipe monorepo (change ci-pipeline, task 5.1).
+//
+// Declarative pipeline: this task lands the skeleton — the agent label of
+// design D8, the retention of D10, the stages in the order D9 fixes and the
+// always-post that archives — and tasks 5.2 to 7.2 fill one stage each. Nothing
+// here omits tests or lowers a threshold: those options are exactly what
+// PROJECT.md §8 forbids.
+//
+// The helpers under ops/jenkins/vars/ are loaded by path instead of being a
+// registered global library: a library is resolved from an SCM, and the commit
+// that introduces it cannot be in that SCM yet. Loading them from the workspace
+// checkout keeps the helpers versioned with the pipeline that uses them.
+
+pipeline {
+    // The label the JCasC node declares (design D8): moving the builds to an
+    // agent later is a label change, not a pipeline rewrite.
+    agent { label 'ci' }
+
+    options {
+        // Retention of a live job (design D10). The orphaned-item strategy in
+        // casc/jenkins.yaml covers the jobs that disappear instead.
+        buildDiscarder(logRotator(numToKeepStr: '10', daysToKeepStr: '30'))
+    }
+
+    stages {
+        // Quality first, so a red test does not wait for the image stages
+        // (design D9).
+        stage('Backend') {
+            steps {
+                echo 'Backend suite lands in task 5.2.'
+            }
+        }
+        stage('Frontend') {
+            steps {
+                echo 'Frontend chain lands in task 5.3.'
+            }
+        }
+        stage('Images') {
+            steps {
+                echo 'OCI build of the seven images lands in task 6.1.'
+            }
+        }
+        stage('SBOM') {
+            steps {
+                echo 'Syft inventory lands in task 7.1.'
+            }
+        }
+        stage('Scan') {
+            steps {
+                echo 'Trivy gate lands in task 7.2.'
+            }
+        }
+    }
+
+    post {
+        // A report is worth more in the build that failed, so it is archived on
+        // both paths (design D10).
+        always {
+            script {
+                load('ops/jenkins/vars/ciArchiveReports.groovy').call()
+            }
+        }
+    }
+}

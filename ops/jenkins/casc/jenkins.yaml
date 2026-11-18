@@ -1,4 +1,4 @@
-# Jenkins controller as code (design D6, task 4.1).
+# Jenkins controller as code (design D6 and D7, tasks 4.1 and 5.1).
 #
 # The directory is mounted at $JENKINS_HOME/casc and applied by the
 # Configuration as Code plugin on every boot, so `down -v` + `up --wait`
@@ -24,21 +24,59 @@ credentials:
           # empty default is deliberate, because a cold clone without a PAT has
           # to boot: JCasC stores an empty secret instead of aborting the whole
           # reload. The scope and expiry of the PAT are documented in README.md.
-          - string:
+          #
+          # Username and password, not Secret text (task 5.1): the branch source
+          # resolves its scan credential through Connector.lookupScanCredentials,
+          # which asks the store for a StandardUsernamePasswordCredentials
+          # (verified in github-branch-source 1986). With a Secret text the source
+          # falls back to anonymous access and discovers nothing. The username is
+          # the repository owner, the one the PAT belongs to; GitHub accepts the
+          # token as the password.
+          - usernamePassword:
               id: "github-token"
               scope: GLOBAL
               description: "GitHub PAT for the multibranch branch source and the commit statuses"
-              secret: "${GITHUB_TOKEN:-}"
+              username: "dominguezvazquezdavid"
+              password: "${GITHUB_TOKEN:-}"
+
+unclassified:
+  # The GitHub server the branch source talks to (design D7, task 5.1). Public
+  # github.com, with the PAT consumed by reference like everywhere else. Hook
+  # management stays off because the controller is not reachable from GitHub:
+  # the scan polls instead. That flag does not silence the plugin's known
+  # SEVERE (design D7), it only states the decision.
+  gitHubPluginConfig:
+    configs:
+      - name: "github.com"
+        apiUrl: "https://api.github.com"
+        credentialsId: "github-token"
+        manageHooks: false
 
 jobs:
   # The multibranch project itself. It goes through the Job DSL extension of
   # JCasC because the `items` root element has no ItemConfigurator for
   # multibranch projects (verified against /configuration-as-code/check on
-  # 2026-11-17). The branch source and the scan trigger arrive with the Jenkinsfile
-  # in task 5.1, because their verification needs a real build.
+  # 2026-11-17).
   - script: |
       multibranchPipelineJob('domincipe') {
         description('Domincipe: the pull-request gate of the local CI stack.')
+
+        // GitHub Branch Source (design D7, task 5.1): branches and pull
+        // requests of this repository, discovered by polling because GitHub
+        // cannot reach a controller on localhost. The id is the stable name of
+        // the source inside the job. The `github` step of Job DSL only fills in
+        // the repository fields: its discovery flags and scan credential are
+        // the pre-trait XML, transient in github-branch-source 1986, so the
+        // credential and the two traits are written in `configure` below.
+        branchSources {
+          github {
+            id('domincipe-github')
+            apiUri('https://api.github.com')
+            scanCredentialsId('github-token')
+            repoOwner('dominguezvazquezdavid')
+            repository('domincipe')
+          }
+        }
 
         // A branch or PR that disappears (merged or closed) must not leave its
         // builds behind forever: keep the last ten, and nothing older than 30
@@ -48,6 +86,57 @@ jobs:
           discardOldItems {
             numToKeep(10)
             daysToKeep(30)
+          }
+        }
+
+        // Settings without a Job DSL step of their own, written in the XML
+        // Jenkins itself serializes (design D7, verified on 2026-11-17):
+        //
+        // - the source shape of github-branch-source 1986: `credentialsId`,
+        //   used for both the API and the checkout, plus explicit traits. The
+        //   `github` step above still emits the pre-trait tags, so the dead
+        //   ones are dropped: a transient tag would leave the scan anonymous
+        //   and the source with no discovery at all (verified on 2026-11-18:
+        //   the first scan connected with "no credentials" and found nothing);
+        // - the script path of the branch project, relative to the checkout;
+        // - PeriodicFolderTrigger, which has no @Symbol and therefore no
+        //   `periodicFolderTrigger` step. Calling it as a step breaks the whole
+        //   JCasC reload with a MissingMethodException, so the trigger goes
+        //   through `configure`. `spec` is the crontab that wakes the trigger
+        //   (every minute, inherited from Trigger) and `interval` is the five
+        //   minutes it waits before indexing again.
+        configure { project ->
+          Node source = project / 'sources' / 'data' / 'jenkins.branch.BranchSource' / 'source'
+          def deadTags = source.children().findAll { Node child ->
+            child.name() in ['scanCredentialsId', 'checkoutCredentialsId',
+                             'buildOriginBranch', 'buildOriginBranchWithPR',
+                             'buildOriginPRMerge', 'buildOriginPRHead',
+                             'buildForkPRMerge', 'buildForkPRHead']
+          }
+          source.children().removeAll(deadTags)
+          source / 'credentialsId'('github-token')
+          source / 'traits' {
+            // Origin branches except the ones that already have an open pull
+            // request: those are built as the PR head, not twice
+            // (BranchDiscoveryTrait with strategyId 1).
+            'org.jenkinsci.plugins.github_branch_source.BranchDiscoveryTrait' {
+              strategyId(1)
+            }
+            // Pull requests on their head, which is the commit the status is
+            // published against (OriginPullRequestDiscoveryTrait with
+            // strategyId 2). The merge commit is never built.
+            'org.jenkinsci.plugins.github_branch_source.OriginPullRequestDiscoveryTrait' {
+              strategyId(2)
+            }
+            // Fork pull requests stay out: without ForkPullRequestDiscoveryTrait
+            // the source never fetches them, which is what design D7 decides
+            // (one maintainer, one repository, no foreign code with these
+            // credentials).
+          }
+          project / 'factory' / 'scriptPath'('ops/jenkins/Jenkinsfile')
+          project / 'properties' / 'com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger' {
+            spec('* * * * *')
+            interval('300000')
           }
         }
       }
