@@ -168,9 +168,9 @@ Versiones de CI verificadas el 2026-11-17 contra Docker Hub y GitHub: Jenkins **
 - **Ramas (Gitflow-lite)**: dos permanentes —`main` (solo releases estables y funcionales) y `develop` (integración, **rama por defecto**)— y cuatro tipos cortos: `feat/<change-id>-<slug>`, `fix/<slug>`, `release/<x.y.z>` y `hotfix/<x.y.z>`. **No hay rama `release` permanente**: el release es una rama efímera de congelado y lo que sobrevive es el tag `vX.Y.Z` sobre `main`.
 - **Rama por change**: cada change OpenSpec se implementa en su propia rama `feat/<change-id>-<slug>`, que **nace de `develop`**; el PR referencia el `change-id` y se abre contra `develop`.
 - **Merge de PRs: `squash and merge`, y solo ese método.** En el repositorio están activos `allow_squash_merge=true` con `allow_merge_commit=false` y `allow_rebase_merge=false`, de modo que **un change = un commit** en `main`: historial lineal, `git log` legible y revert del change completo en una sola operación. Consecuencias asumidas, que no se replantean sin cambiar esta sección: (a) el **asunto del commit resultante es el título del PR**, así que el título debe ser un Conventional Commit y el cuerpo del commit se redacta al mergear (`gh pr merge --squash -t … -b …`); (b) los commits granulares de la rama **no** llegan a `main`, y el rastro por tarea con su verificación se conserva en el `tasks.md` del change, que sobrevive al archivado en `openspec/changes/archive/<fecha>-<change>/`; (c) la rama remota se borra sola al mergear (`delete_branch_on_merge=true`) y la copia local se descarta con `git branch -D`, porque tras un squash git no la reconoce como mergeada.
-- **Ciclo de release**: (1) `release/<x.y.z>` nace de `develop` y queda **congelada**: solo arreglos, ninguna feature nueva; (2) se ejecuta la batería completa sobre un entorno **recreado** —`./mvnw -B -ntp verify`, `npm ci && npm run lint && npm run build && npm test`, `docker compose up --wait` desde cero, `scripts/verify-environment.sh` y `scripts/verify-shutdown.sh`—; (3) PR `release → main` con squash y tag anotado `vX.Y.Z`; (4) si la release recibió arreglos, back-merge a `develop` como PR de contenido, y si no los recibió no se hace nada porque los dos árboles son idénticos; (5) la rama `release/<x.y.z>` se borra al mergear. La automatización de esa batería queda para el change de Jenkins.
+- **Ciclo de release**: (1) `release/<x.y.z>` nace de `develop` y queda **congelada**: solo arreglos, ninguna feature nueva; (2) se ejecuta la batería completa sobre un entorno **recreado** —`./mvnw -B -ntp verify`, `npm ci && npm run lint && npm run build && npm test`, `docker compose up --wait` desde cero, `scripts/verify-environment.sh` y `scripts/verify-shutdown.sh`—; (3) PR `release → main` con squash y tag anotado `vX.Y.Z`; (4) si la release recibió arreglos, back-merge a `develop` como PR de contenido, y si no los recibió no se hace nada porque los dos árboles son idénticos; (5) la rama `release/<x.y.z>` se borra al mergear. El CI solo automatiza el **gate de PR** (§8); esta batería sigue ejecutándose a mano y su automatización es el change `ci-integration`.
 - **Versionado**: SemVer en el tag (`v0.1.0` para el esqueleto; `v1.0.0` cuando v1 esté completo). El tag se crea **sobre `main`**, es anotado y nunca se mueve ni se borra.
-- **Protección de ramas**: `main` y `develop` exigen PR (sin pushes directos), prohíben force-push y borrado, y `main` exige historial lineal; los tags `v*` no se pueden borrar ni actualizar. Con un solo mantenedor las aprobaciones requeridas son 0 —no se puede aprobar el PR propio— y los *status checks* bloqueantes llegan con Jenkins.
+- **Protección de ramas**: `main` y `develop` exigen PR (sin pushes directos), prohíben force-push y borrado, y `main` exige historial lineal; los tags `v*` no se pueden borrar ni actualizar. Con un solo mantenedor las aprobaciones requeridas son 0 —no se puede aprobar el PR propio— y los *status checks* bloqueantes son el **gate de PR**: las dos ramas exigen el estado que publica el job `domincipe` de Jenkins sobre el commit del PR y rechazan el merge mientras ese estado esté en rojo (§9).
 - **Package base**: `com.domincipe.<servicio>`.
 - **Configuración**: 100% por variables de entorno. `.env.example` versionado, `.env` ignorado.
 - **Propiedades repetidas**: toda propiedad de configuración que se repita en más de un módulo o clase se declara **una sola vez** en un fichero `.properties` (del módulo o compartido), nunca copiada en cada clase. En los tests, la forma prevista es una anotación compuesta compartida sobre `@SpringBootTest` (decisión D14 del change `project-skeleton`, tarea 5.2).
@@ -187,11 +187,29 @@ Versiones de CI verificadas el 2026-11-17 contra Docker Hub y GitHub: Jenkins **
 | Contract | Spring Cloud Contract / Pact | MSW (mock service worker) |
 | E2E | Testcontainers + RestAssured | Playwright contra `docker compose up` |
 
+La suite se parte en dos bloques según lo que necesitan para ejecutarse. La frontera es el **daemon Docker**: el gate de PR no lo tiene (design D13), así que solo puede correr la mitad de la pirámide que no lo necesita.
+
+**Suite de PR (bloqueante, sin Docker):** es la que ejecuta Jenkins en cada PR y la que decide si un change puede mergearse. No hay socket ni daemon Docker en el contenedor del pipeline, así que cubre todo lo que corre sin ellos:
+
+- **Backend**: `./mvnw -B -ntp verify`, precedido de `scripts/ci-suite-scope.sh`: unit y slice con JUnit 5, Mockito y AssertJ, el contract de Spring Cloud Contract / Pact cuando exista —ninguno de los dos necesita Docker—, Checkstyle y gate JaCoCo. El `maven-failsafe-plugin` ya está activo en todos los módulos, así que un `*IT.java` lo detecta la guarda antes de que Testcontainers lo intente.
+- **Frontend**: `npm ci`, `npm run lint`, `npm run build` y `npm test` (Vitest + React Testing Library, con MSW en los contract tests cuando existan), dentro de `apps/web-frontend`.
+- Las dos mitades corren **en paralelo** y cualquiera de ellas en rojo tumba el build; el rojo de una no espera a la otra.
+- Imágenes, SBOM y escaneo de vulnerabilidades forman parte del mismo gate, pero no de esta sección: se describen en §9.
+
+**Batería de release (con Docker: integration y e2e):** los niveles que necesitan daemon Docker quedan **fuera** del gate de PR por decisión escrita (design D13 del change `ci-pipeline`), no por olvido:
+
+- **Integration**: Testcontainers (PostgreSQL + Kafka) a través de `maven-failsafe-plugin`, que ya está activo en los nueve módulos.
+- **E2E**: Testcontainers + RestAssured en el backend y Playwright contra `docker compose up` en el frontend.
+- Se ejecuta **en el host**, sobre un entorno recreado, dentro del ciclo de release (§7), junto con `docker compose up --wait` desde cero, `scripts/verify-environment.sh` y `scripts/verify-shutdown.sh`.
+- Su entrada en CI es un change propio, `ci-integration`, que decidirá entre un socket dedicado a tests, un daemon propio por TCP o la excepción consciente. Nunca se reutiliza el socket del daemon de desarrollo.
+- **Guarda**: cualquier `*IT.java` que aparezca en el árbol hace fallar la suite de PR **nombrando el fichero y la acción** (`scripts/ci-suite-scope.sh`), en vez de morir dentro de Testcontainers; así el hueco no se descubre como un verde falso.
+
 **Reglas de validación (Definition of Done):**
 
-- Ningún change se cierra hasta que la **suite COMPLETA** de tests pase: unit + slice + integration + contract + e2e + lint. No solo los nuevos.
-- El pipeline Jenkins corre **toda** la suite en cada PR (regresión bloqueante).
-- **Nunca** `-DskipTests` en CI.
+- Ningún change se cierra con la **suite de PR** en rojo: los niveles sin Docker que el árbol tenga (unit, slice y contract), lint y cobertura, no solo los tests nuevos. Es el gate bloqueante de Jenkins.
+- Un change que añada o modifique tests de **integration** o **e2e** los ejecuta además en el host, dentro de la batería de release, antes de darse por cerrado, y deja la evidencia en su `tasks.md`.
+- Antes de cada release se ejecuta la **batería de release completa** —los dos niveles con Docker de esta sección— sobre un entorno recreado, dentro del ciclo de release (§7); ningún tag sale con ella en rojo.
+- **Nunca** `-DskipTests` en CI, ni exclusiones de módulos, ni umbrales rebajados para salir del paso.
 - **Coverage gate (JaCoCo)**: ≥ 80% líneas y ≥ 70% ramas por módulo. Si baja, el build falla. Excluidos del cómputo: clases `*Application`, DTOs, interfaces, código generado (`*Impl` de MapStruct, getters de Lombok).
 - Los tests `e2e` pueden reintentarse **una vez** por flakiness. Unit e integration no se reintentan.
 - Herramienta de cobertura backend: **JaCoCo** (informe HTML en `target/site/jacoco/index.html`).
@@ -213,9 +231,20 @@ El comando canónico es `docker compose up --wait` desde la raíz: `.env` declar
 - **Healthchecks** en todos los contenedores, con `depends_on: condition: service_healthy` (nunca `sleep`).
 - **Graceful shutdown** (`server.shutdown: graceful` + `stop_grace_period`).
 - Imágenes **multi-stage, no-root**, con tags inmutables (git SHA) además de `latest`.
-- **SBOM (Syft)** y **escaneo Trivy** en Jenkins; rompe el build con CVEs HIGH/CRITICAL.
+- **SBOM (Syft)** y **escaneo Trivy** en el gate de PR; rompe el build con CVEs HIGH/CRITICAL salvo excepción versionada, con motivo y caducidad, en `ops/jenkins/.trivyignore`.
 - **Resource limits** en Compose para simular *requests/limits* de K8s.
 - **Redes separadas** (`frontend-net`, `backend-net`, `obs-net`) simulando NetworkPolicies.
+
+**Entorno de integración continua (`ops/jenkins/`)** — deliberadamente **fuera** del `COMPOSE_FILE` de desarrollo: el CI no arranca con `docker compose up` y un CI caído no impide levantar la aplicación.
+
+- **Arranque**: `docker compose -f ops/jenkins/docker-compose.yml up --wait`. Red propia (`ci-net`), puerto **8095** del host para el controlador (8080-8087, 8090, 9090, 3000, 7070, 8025, 1025 y 29092 ya están ocupados), y ningún `.env` obligatorio en `ops/jenkins/`: cada valor trae su default en el fichero y el PAT llega por `GITHUB_TOKEN`.
+- **Dos contenedores**: el controlador `jenkins` (imagen propia de `ops/jenkins/Dockerfile` con la toolchain de §4) y el builder `buildkitd` (`moby/buildkit:v0.35.0-rootless`). Ninguno monta `/var/run/docker.sock` y ninguno ejecuta como root: **no hay daemon Docker** en el stack.
+- **Builder real**: BuildKit rootless 0.35.0 como **UID 1000** dentro de su contenedor, sin `privileged:`, con los tres `--security-opt` que rootless BuildKit documenta para contenedores —`seccomp=unconfined`, `apparmor=unconfined` y `systempaths=unconfined`—. Qué son y qué no: sin `systempaths=unconfined` cada `RUN` falla al montar su propio `/proc` (`operation not permitted`), y la ganancia real es **no ejecutar como root**, no un aislamiento reforzado. Docker 29.10.0 no muestra `systempaths` en `docker inspect` aunque lo aplique, así que la única comprobación válida es un build que llegue a un `RUN`.
+- **Comunicación**: el `buildctl` del controlador construye hablando con `buildkitd` por el socket Unix `/run/user/1000/buildkit/buildkitd.sock`, compartido con el volumen `buildkit-run`. El healthcheck del builder —y primer paso del pipeline— es `buildctl debug workers`, que distingue «worker listo» de «socket presente».
+- **Caché y artefactos**: `/cache` (`type=local`) y `/out` (archivos OCI, un `.tar` por imagen con `sha` y `latest` sobre el mismo manifiesto) son volúmenes del **controlador**, porque quien los escribe es el cliente `buildctl`; la etapa `Images` vacía `/out` al empezar.
+- **Qué ejecuta el gate de PR**, mismo orden y mismo alcance que el `Jenkinsfile`: **Quality** —en paralelo, la mitad **Backend** (`scripts/ci-suite-scope.sh` y `./mvnw -B -ntp verify`) y la mitad **Frontend** (`npm ci`, `npm run lint`, `npm run build` y `npm test`), con `failFast`—; **Images** —las siete imágenes contra el builder rootless—; **SBOM** —CycloneDX por imagen con Syft— y **Scan** —Trivy con umbral HIGH/CRITICAL y el fichero de excepciones versionado—. Los informes (cobertura, resultados de test, SBOM y JSON de Trivy) se archivan también en los builds rojos, con retención de 10 builds o 30 días.
+- **Publicación**: el *branch source* escanea el repositorio cada **5 minutos** —sin webhooks, porque el controlador vive en `localhost` y GitHub no puede entregarlos— y el estado del build se publica sobre el commit del PR con el PAT del almacén de credenciales (§7).
+- **Lo que el gate no ejecuta**: integration, e2e y la batería de entorno (`docker compose up --wait` desde cero, `scripts/verify-environment.sh`, `scripts/verify-shutdown.sh`, Playwright) siguen en el host, dentro del ciclo de release (§7 y §8); su entrada en CI es el change `ci-integration`.
 
 **Fuera de alcance v1** (roadmap, ver §10): Kubernetes real (k3d/Helm), Vault, Debezium, Elasticsearch.
 
