@@ -12,3 +12,8 @@ def call() {
     archiveArtifacts artifacts: 'sbom/*.json', allowEmptyArchive: true
     archiveArtifacts artifacts: 'security/*.json', allowEmptyArchive: true
 }
+
+// `load` returns the result of running the script, not the script object, so
+// the file hands itself back and the Jenkinsfile can call its methods. Without
+// this line `load(...).call()` is a call on null (reproduced in build #1).
+return this

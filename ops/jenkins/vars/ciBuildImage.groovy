@@ -47,3 +47,7 @@ def call(Map args) {
           --output '${output}'
     """
 }
+
+// `load` hands back the script object only because the script returns itself
+// (see ciArchiveReports.groovy).
+return this
