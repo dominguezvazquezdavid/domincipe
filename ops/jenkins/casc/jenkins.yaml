@@ -40,6 +40,14 @@ credentials:
               password: "${GITHUB_TOKEN:-}"
 
 unclassified:
+  # The controller's own address (task 8.1). Jenkins cannot detect it from
+  # inside a container, so without this the build links and the target_url of
+  # the commit status name `unconfigured-jenkins-location` and link nowhere
+  # (reproduced on 2026-11-18 on the statuses of the pull request). The compose
+  # file derives the value from JENKINS_PORT, so the link always names the host
+  # port the controller is published on.
+  location:
+    url: "${JENKINS_URL:-http://localhost:8095/}"
   # The GitHub server the branch source talks to (design D7, task 5.1). Public
   # github.com, with the PAT consumed by reference like everywhere else. Hook
   # management stays off because the controller is not reachable from GitHub:

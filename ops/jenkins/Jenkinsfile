@@ -5,7 +5,8 @@
 // that archives —, 5.2 and 5.3 filled the quality stages, 5.4 runs them at the
 // same time, 6.1 builds the seven images, 6.2 verifies their references and 6.3
 // that the local and CI build paths share the same contract. 7.1 inventories
-// every archive with Syft and 7.2 gates them with Trivy.
+// every archive with Syft and 7.2 gates them with Trivy. 8.1 publishes the
+// result as the commit status GitHub shows on the pull request.
 // Nothing here omits tests or lowers a threshold: those options are exactly
 // what PROJECT.md §8 forbids.
 //
@@ -36,6 +37,16 @@ pipeline {
         // `debug workers` probe and ciBuildImage.groovy read this same variable,
         // so the address cannot drift between the two.
         BUILDKIT_HOST = 'unix:///run/user/1000/buildkit/buildkitd.sock'
+        // The GitHub repository the build result is published to, and the API
+        // it is published through (task 8.1). It is the same repository the
+        // branch source polls, so the status lands on the commit the build was
+        // started from.
+        GITHUB_REPOSITORY = 'dominguezvazquezdavid/domincipe'
+        GITHUB_API_URL = 'https://api.github.com'
+        // Name of the check this pipeline publishes. Task 8.2 requires exactly
+        // this name in the protection of develop and main, and task 8.3
+        // documents it, so it is declared once, here.
+        CI_STATUS_CONTEXT = 'domincipe'
     }
 
     stages {
@@ -230,11 +241,23 @@ pipeline {
     }
 
     post {
-        // A report is worth more in the build that failed, so it is archived on
-        // both paths (design D10).
+        // The status is the gate and the reports are the diagnosis, so both run
+        // on a green and on a red build, and the archive is in the `finally`:
+        // a build that could not publish its state still leaves its reports
+        // behind (design D10, task 8.1).
         always {
             script {
-                load('ops/jenkins/vars/ciArchiveReports.groovy').call()
+                try {
+                    // The commit the build represents (ciGitSha: the PR head),
+                    // published with the credential of the store by id — the PAT
+                    // is masked in the log and never travels in the Jenkinsfile.
+                    def sha = load('ops/jenkins/vars/ciGitSha.groovy').call()
+                    load('ops/jenkins/vars/ciPublishStatus.groovy').call(sha: sha)
+                } finally {
+                    // A report is worth more in the build that failed, so it is
+                    // archived on both paths (design D10).
+                    load('ops/jenkins/vars/ciArchiveReports.groovy').call()
+                }
             }
         }
     }

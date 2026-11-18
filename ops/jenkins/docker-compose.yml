@@ -76,6 +76,11 @@ services:
       # directory is a read-only bind mount of the versioned configuration, so
       # the controller cannot rewrite it.
       CASC_JENKINS_CONFIG: /var/jenkins_home/casc
+      # The controller's own address, which JCasC writes into the Jenkins
+      # location (task 8.1): Jenkins cannot detect it from inside the container
+      # and both the build links and the commit status point at it. It follows
+      # the published port unless set explicitly.
+      JENKINS_URL: ${JENKINS_URL:-http://localhost:${JENKINS_PORT:-8095}/}
       # The credential value travels by reference only: JCasC writes
       # `github-token` from this variable and git never holds it (design D6).
       # Empty is a valid cold-clone state; task 4.3 brings the PAT.
