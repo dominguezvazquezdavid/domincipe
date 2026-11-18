@@ -100,7 +100,7 @@ buildctl --addr unix:///run/user/1000/buildkit/buildkitd.sock build \
 # build falla (web-frontend.Dockerfile, design D13 de project-skeleton).
 ```
 
-Las dos referencias viajan **dentro** del archivo OCI (`org.opencontainers.image.ref.name`), así que hay referencia inmutable sin daemon y sin registry. Van en **un único `name=` separado por comas**, no en dos `--output`: el exporter OCI de BuildKit normaliza ese atributo con `strings.Split(name, ",")` y escribe un descriptor por nombre (`exporter/oci/export.go`, `normalizedNames`), mientras que dos salidas distintas producirían dos archivos que podrían divergir.
+Las dos referencias viajan **dentro** del archivo OCI (un índice con una entrada por referencia), así que hay referencia inmutable sin daemon y sin registry. Van en **un único `name=` separado por comas**, no en dos `--output`: el *exporter* OCI de BuildKit normaliza ese atributo con `strings.Split(name, ",")` y escribe un descriptor por nombre (`exporter/oci/export.go`, `normalizedNames`), mientras que dos salidas distintas producirían dos archivos que podrían divergir.
 
 *La lista de nombres hay que entrecomillarla como campo CSV.* `buildctl` no parte `--output` por comas a lo bruto: lo parsea con `go-csvvalue` (`cmd/buildctl/build/output.go`, `parseOutputCSV`), así que la coma que separa los dos nombres tiene que viajar dentro de un campo entrecomillado. Las tres formas se probaron contra el builder el 2026-11-17:
 
@@ -111,6 +111,34 @@ Las dos referencias viajan **dentro** del archivo OCI (`org.opencontainers.image
 | `--output 'type=oci,dest=…,"name=a:sha,a:latest"'` | correcto: `index.json` con `ref.name` `sha` y `latest` apuntando al mismo digest |
 
 Repetir la clave (`name=a:sha,name=a:latest`) tampoco sirve: `parseOutputCSV` la guarda en un mapa y la última gana, así que el archivo sale con **una sola** referencia —comprobado en el spike—. El entrecomillado del campo es, por tanto, parte del contrato del pipeline y no un detalle de estilo.
+
+*Forma real del índice (verificada el 2026-11-18 en la tarea 6.1 sobre las siete imágenes, no asumida):* el `.tar` es un layout OCI cuyo `index.json` es un índice con **una entrada por referencia**, no una referencia anotada en el nivel superior:
+
+```json
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:e83d709cfeb86a1f294c3aaa2d57433635a8af1b6a11de920e5c37b5e49c77e4",
+      "size": 1812,
+      "annotations": {
+        "io.containerd.image.name": "docker.io/domincipe/api-gateway:02a4c53",
+        "org.opencontainers.image.created": "2026-11-18T09:57:12Z",
+        "org.opencontainers.image.ref.name": "02a4c53"
+      },
+      "platform": { "architecture": "amd64", "os": "linux" }
+    },
+    { "…": "misma forma, con ref.name latest y el mismo digest" }
+  ]
+}
+```
+
+Dos detalles que no se pueden suponer y que cambian cómo se comprueba el artefacto:
+
+- `org.opencontainers.image.ref.name` guarda **solo el tag** (`02a4c53`, `latest`). El nombre completo —`docker.io/domincipe/api-gateway:02a4c53`— viaja en `io.containerd.image.name`, normalizado por containerd con el prefijo `docker.io/` aunque el `name=` del pipeline no lleve registry. Una verificación que busque `domincipe/api-gateway:<sha>` dentro de `ref.name` falla por diseño.
+- Cada entrada lleva `platform` (linux/amd64) y `org.opencontainers.image.created`. Las dos entradas de un mismo archivo apuntan al mismo `digest` de manifiesto; la comprobación automática de esa equivalencia es la tarea 6.2.
 
 *La caché y `/out` son del cliente:* `--import-cache`/`--export-cache type=local` los lee y los escribe **`buildctl`**, no `buildkitd`, y lo mismo ocurre con `dest=/out`. Por eso `/cache` y `/out` se montan en el contenedor de Jenkins, y `buildkitd` solo conserva su estado en `/home/user/.local/share/buildkit`. La etapa vacía `/out` antes de construir —tarballs y layouts extraídos—: los artefactos son por build y, sin eso, el volumen crece sin límite.
 
