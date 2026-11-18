@@ -3,8 +3,8 @@
 // Declarative pipeline: 5.1 landed the skeleton — the agent label of design D8,
 // the retention of D10, the stages in the order D9 fixes and the always-post
 // that archives —, 5.2 and 5.3 filled the quality stages, 5.4 runs them at the
-// same time and 6.1 builds the seven images. Tasks 7.x fill the SBOM and scan
-// stages.
+// same time, 6.1 builds the seven images and 6.2 verifies their references.
+// Tasks 7.x fill the SBOM and scan stages.
 // Nothing here omits tests or lowers a threshold: those options are exactly
 // what PROJECT.md §8 forbids.
 //
@@ -125,6 +125,13 @@ pipeline {
                     ].each { entry ->
                         buildImage.call(entry + [sha: sha])
                     }
+
+                    // Both references of every archive must resolve to the same
+                    // manifest (task 6.2). The single --output of D3 is designed
+                    // to make them inseparable; this turns that into a checked
+                    // property, so a divergent pair fails the build here instead
+                    // of shipping two tags of different images.
+                    sh "./scripts/ci-verify-oci-refs.sh --sha '${sha}' /out/*.tar"
                 }
             }
         }
