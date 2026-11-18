@@ -5,7 +5,7 @@
 // that archives —, 5.2 and 5.3 filled the quality stages, 5.4 runs them at the
 // same time, 6.1 builds the seven images, 6.2 verifies their references and 6.3
 // that the local and CI build paths share the same contract. 7.1 inventories
-// every archive with Syft; task 7.2 fills the scan stage.
+// every archive with Syft and 7.2 gates them with Trivy.
 // Nothing here omits tests or lowers a threshold: those options are exactly
 // what PROJECT.md §8 forbids.
 //
@@ -178,9 +178,53 @@ pipeline {
                 '''
             }
         }
+        // Trivy 0.76.2 reads a `docker save` tarball or an OCI layout on disk,
+        // never an OCI archive (design D4: it fails with `stat …/index.json:
+        // not a directory`), so each .tar is extracted once and the directory is
+        // the scan input — no second export and no daemon. The layout shares the
+        // fate of the archive it came from: the next Images run empties /out.
+        //
+        // The stage scans every archive before failing, because the report of a
+        // red build is what diagnoses it (design D10). A finding listed in the
+        // versioned ignore file does not fail the build; Trivy omits it from the
+        // report, and the identifier with its justification and expiry lives in
+        // that file, which is the versioned record of the exception (design D4,
+        // D9; --show-suppressed is not used because on 0.76.2 it restores the
+        // findings suppressed by status or VEX, not those of --ignorefile). The
+        // severity and exit code are the gate of D9: relaxing them needs a spec
+        // change, never a pipeline parameter.
         stage('Scan') {
             steps {
-                echo 'Trivy gate lands in task 7.2.'
+                sh '''
+                    rm -rf security
+                    mkdir -p security
+                    set -- /out/*.tar
+                    if [ ! -f "$1" ]; then
+                        echo 'Scan: no OCI archive under /out; the Images stage has to run first' >&2
+                        exit 1
+                    fi
+                    failed=''
+                    for archive in "$@"; do
+                        image="${archive##*/}"
+                        image="${image%.tar}"
+                        echo "Scan: ${image}"
+                        mkdir -p "/out/${image}"
+                        tar -xf "$archive" -C "/out/${image}"
+                        if trivy image --input "/out/${image}" \
+                          --ignorefile "${WORKSPACE}/ops/jenkins/.trivyignore" \
+                          --severity HIGH,CRITICAL --exit-code 1 \
+                          --format json --output "security/${image}.json"; then
+                            echo "Scan: ${image} passed the HIGH/CRITICAL gate"
+                        else
+                            echo "Scan: ${image} failed the HIGH/CRITICAL gate; see security/${image}.json" >&2
+                            failed="${failed} ${image}"
+                        fi
+                    done
+                    if [ -n "${failed}" ]; then
+                        echo "Scan: HIGH/CRITICAL findings in${failed}" >&2
+                        exit 1
+                    fi
+                '''
             }
         }
     }
