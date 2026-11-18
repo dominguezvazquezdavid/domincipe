@@ -3,7 +3,8 @@
 // Declarative pipeline: 5.1 landed the skeleton — the agent label of design D8,
 // the retention of D10, the stages in the order D9 fixes and the always-post
 // that archives —, 5.2 and 5.3 filled the quality stages, 5.4 runs them at the
-// same time, 6.1 builds the seven images and 6.2 verifies their references.
+// same time, 6.1 builds the seven images, 6.2 verifies their references and 6.3
+// that the local and CI build paths share the same contract.
 // Tasks 7.x fill the SBOM and scan stages.
 // Nothing here omits tests or lowers a threshold: those options are exactly
 // what PROJECT.md §8 forbids.
@@ -132,6 +133,13 @@ pipeline {
                     // property, so a divergent pair fails the build here instead
                     // of shipping two tags of different images.
                     sh "./scripts/ci-verify-oci-refs.sh --sha '${sha}' /out/*.tar"
+
+                    // Same Dockerfiles, same build args and the same revision
+                    // label as the local scripts/build-images.sh path, checked
+                    // on the archives just built (task 6.3). The gate passes the
+                    // seven archives; --local is the host spot check that
+                    // compares an archive against the local image of the commit.
+                    sh "./scripts/ci-verify-build-parity.sh --sha '${sha}' /out/*.tar"
                 }
             }
         }
