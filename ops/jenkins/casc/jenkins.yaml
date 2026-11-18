@@ -102,9 +102,12 @@ jobs:
         // - PeriodicFolderTrigger, which has no @Symbol and therefore no
         //   `periodicFolderTrigger` step. Calling it as a step breaks the whole
         //   JCasC reload with a MissingMethodException, so the trigger goes
-        //   through `configure`. `spec` is the crontab that wakes the trigger
-        //   (every minute, inherited from Trigger) and `interval` is the five
-        //   minutes it waits before indexing again.
+        //   through `configure`. It lives in `<triggers>`, not in
+        //   `<properties>`: a PeriodicFolderTrigger written as a property is
+        //   silently dropped on the next save (verified on 2026-11-18: the
+        //   element vanished and no scan ever fired). `spec` is the crontab
+        //   that wakes the trigger (every minute, inherited from Trigger) and
+        //   `interval` is the five minutes it waits before indexing again.
         configure { project ->
           Node source = project / 'sources' / 'data' / 'jenkins.branch.BranchSource' / 'source'
           def deadTags = source.children().findAll { Node child ->
@@ -134,7 +137,7 @@ jobs:
             // credentials).
           }
           project / 'factory' / 'scriptPath'('ops/jenkins/Jenkinsfile')
-          project / 'properties' / 'com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger' {
+          project / 'triggers' / 'com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger' {
             spec('* * * * *')
             interval('300000')
           }
