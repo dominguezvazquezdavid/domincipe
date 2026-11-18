@@ -2,8 +2,9 @@
 //
 // Declarative pipeline: 5.1 landed the skeleton — the agent label of design D8,
 // the retention of D10, the stages in the order D9 fixes and the always-post
-// that archives —, 5.2 and 5.3 filled the quality stages and 5.4 runs them at
-// the same time. Tasks 6.x and 7.x fill the image, SBOM and scan stages.
+// that archives —, 5.2 and 5.3 filled the quality stages, 5.4 runs them at the
+// same time and 6.1 builds the seven images. Tasks 7.x fill the SBOM and scan
+// stages.
 // Nothing here omits tests or lowers a threshold: those options are exactly
 // what PROJECT.md §8 forbids.
 //
@@ -29,6 +30,11 @@ pipeline {
         // default scripts/build-images.sh bakes into the local bundle, which
         // keeps the build-arg of the image stage identical (design D3, task 6.1).
         VITE_API_BASE_URL = 'http://localhost:8080'
+        // The rootless builder's Unix socket, shared with the controller through
+        // the buildkit-run volume (design D2). It is defined once here: the
+        // `debug workers` probe and ciBuildImage.groovy read this same variable,
+        // so the address cannot drift between the two.
+        BUILDKIT_HOST = 'unix:///run/user/1000/buildkit/buildkitd.sock'
     }
 
     stages {
@@ -77,7 +83,49 @@ pipeline {
         }
         stage('Images') {
             steps {
-                echo 'OCI build of the seven images lands in task 6.1.'
+                script {
+                    // Artefacts in /out are per build — the OCI archives and,
+                    // from task 7.2 on, the layouts extracted from them — so the
+                    // stage starts by emptying the volume instead of letting it
+                    // grow with every run (design D3, checked in task 6.5).
+                    sh 'find /out -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
+
+                    // Ask the daemon for its workers before building: an
+                    // unreachable socket fails here with the builder's own
+                    // message, not as a build that looks slow on a cold cache
+                    // (design D3, same probe as the compose healthcheck).
+                    sh 'buildctl debug workers'
+
+                    // Short SHA computed exactly as scripts/build-images.sh does
+                    // it. The immutable reference and the
+                    // org.opencontainers.image.revision label have to be the
+                    // same string in the local build and in the CI build of one
+                    // commit (design D3, checked in task 6.3).
+                    def sha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+
+                    def buildImage = load('ops/jenkins/vars/ciBuildImage.groovy')
+
+                    // Same Dockerfiles, build args and MODULE values as the
+                    // local script, so only the builder differs between the two
+                    // paths (design D3). One buildctl call per image writes one
+                    // OCI archive with the sha and the latest reference, which is
+                    // what makes them unable to drift apart.
+                    [
+                        [image: 'api-gateway',          dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/api-gateway']],
+                        [image: 'auth-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/auth-service']],
+                        [image: 'user-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/user-service']],
+                        [image: 'recipe-service',       dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/recipe-service']],
+                        [image: 'media-service',        dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/media-service']],
+                        [image: 'notification-service', dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/notification-service']],
+                        // The SPA bakes the API endpoint in at build time: without
+                        // it vite.config.ts fails (web-shell spec). The value is
+                        // the pipeline environment one, which equals the local
+                        // script's default (design D3).
+                        [image: 'web-frontend',         dockerfile: 'web-frontend.Dockerfile',   buildArgs: [VITE_API_BASE_URL: env.VITE_API_BASE_URL]],
+                    ].each { entry ->
+                        buildImage.call(entry + [sha: sha])
+                    }
+                }
             }
         }
         stage('SBOM') {
