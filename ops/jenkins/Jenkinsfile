@@ -1,10 +1,11 @@
 // Pull-request gate of the Domincipe monorepo (change ci-pipeline, task 5.1).
 //
-// Declarative pipeline: this task lands the skeleton — the agent label of
-// design D8, the retention of D10, the stages in the order D9 fixes and the
-// always-post that archives — and tasks 5.2 to 7.2 fill one stage each. Nothing
-// here omits tests or lowers a threshold: those options are exactly what
-// PROJECT.md §8 forbids.
+// Declarative pipeline: 5.1 landed the skeleton — the agent label of design D8,
+// the retention of D10, the stages in the order D9 fixes and the always-post
+// that archives —, 5.2 and 5.3 filled the quality stages and 5.4 runs them at
+// the same time. Tasks 6.x and 7.x fill the image, SBOM and scan stages.
+// Nothing here omits tests or lowers a threshold: those options are exactly
+// what PROJECT.md §8 forbids.
 //
 // The helpers under ops/jenkins/vars/ are loaded by path instead of being a
 // registered global library: a library is resolved from an SCM, and the commit
@@ -32,29 +33,45 @@ pipeline {
 
     stages {
         // Quality first, so a red test does not wait for the image stages
-        // (design D9). The scope guard goes before Maven: a *IT.java needs a
-        // Docker daemon the gate does not have, and it has to fail naming the
-        // file instead of dying inside Testcontainers (design D13, task 5.6).
-        // The surefire results and the per-module JaCoCo reports this stage
-        // writes are archived by the always-post of design D10.
-        stage('Backend') {
-            steps {
-                sh './scripts/ci-suite-scope.sh'
-                sh './mvnw -B -ntp verify'
-            }
-        }
-        // Same chain PROJECT.md §8 runs by hand: reproducible install from the
-        // lock file, lint, type-check plus bundle and tests. npm keeps its cache
-        // in ~/.npm, which is the npm-cache volume of the controller, so a
-        // second build does not download the registry again. VITE_API_BASE_URL
-        // comes from the pipeline environment: without it vite.config.ts fails.
-        stage('Frontend') {
-            steps {
-                dir('apps/web-frontend') {
-                    sh 'npm ci'
-                    sh 'npm run lint'
-                    sh 'npm run build'
-                    sh 'npm test'
+        // (design D9). The two halves are independent — Maven and npm share
+        // nothing but the checkout — so they run at the same time (task 5.4):
+        // the gate lasts as long as the slower half instead of the sum.
+        // failFast marks the build red as soon as either half fails instead of
+        // waiting for its sibling; it aborts nothing that was going to change
+        // the verdict, and a green half is never reported as a pass for the
+        // build. A failure in either branch is a FAILURE of the build.
+        stage('Quality') {
+            failFast true
+            parallel {
+                // The scope guard goes before Maven: a *IT.java needs a Docker
+                // daemon the gate does not have, and it has to fail naming the
+                // file instead of dying inside Testcontainers (design D13,
+                // task 5.6). The surefire results and the per-module JaCoCo
+                // reports this stage writes are archived by the always-post of
+                // design D10.
+                stage('Backend') {
+                    steps {
+                        sh './scripts/ci-suite-scope.sh'
+                        sh './mvnw -B -ntp verify'
+                    }
+                }
+                // Same chain PROJECT.md §8 runs by hand: reproducible install
+                // from the lock file, lint, type-check plus bundle and tests.
+                // npm keeps its cache in ~/.npm, which is the npm-cache volume
+                // of the controller, so a second build does not download the
+                // registry again. VITE_API_BASE_URL comes from the pipeline
+                // environment: without it vite.config.ts fails. `dir` is
+                // thread-scoped, so this branch works in its own directory
+                // while the Backend branch builds at the root of the checkout.
+                stage('Frontend') {
+                    steps {
+                        dir('apps/web-frontend') {
+                            sh 'npm ci'
+                            sh 'npm run lint'
+                            sh 'npm run build'
+                            sh 'npm test'
+                        }
+                    }
                 }
             }
         }
