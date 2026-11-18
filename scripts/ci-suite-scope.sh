@@ -62,7 +62,7 @@ if (( ${#scan_roots[@]} == 0 )); then
 fi
 
 # target/ is excluded: it holds generated sources and compiled test classes, not
-# the source tree failsafe would pick the *IT.java from. paths are reported
+# the source tree failsafe would pick the *IT.java from. Paths are reported
 # relative to the repository root so the message points at the file to act on.
 integration_tests=()
 while IFS= read -r file; do
