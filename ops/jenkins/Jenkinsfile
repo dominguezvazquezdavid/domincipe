@@ -22,6 +22,14 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '10', daysToKeepStr: '30'))
     }
 
+    environment {
+        // vite.config.ts aborts build and test when this variable is missing, so
+        // the gate has to define it (web-shell spec). The value is the same
+        // default scripts/build-images.sh bakes into the local bundle, which
+        // keeps the build-arg of the image stage identical (design D3, task 6.1).
+        VITE_API_BASE_URL = 'http://localhost:8080'
+    }
+
     stages {
         // Quality first, so a red test does not wait for the image stages
         // (design D9). The scope guard goes before Maven: a *IT.java needs a
@@ -35,9 +43,19 @@ pipeline {
                 sh './mvnw -B -ntp verify'
             }
         }
+        // Same chain PROJECT.md §8 runs by hand: reproducible install from the
+        // lock file, lint, type-check plus bundle and tests. npm keeps its cache
+        // in ~/.npm, which is the npm-cache volume of the controller, so a
+        // second build does not download the registry again. VITE_API_BASE_URL
+        // comes from the pipeline environment: without it vite.config.ts fails.
         stage('Frontend') {
             steps {
-                echo 'Frontend chain lands in task 5.3.'
+                dir('apps/web-frontend') {
+                    sh 'npm ci'
+                    sh 'npm run lint'
+                    sh 'npm run build'
+                    sh 'npm test'
+                }
             }
         }
         stage('Images') {
