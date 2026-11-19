@@ -17,6 +17,11 @@
 #   VITE_API_BASE_URL  API endpoint baked into the frontend bundle. The build
 #                      fails without it (design D13), so the api-gateway port of
 #                      the local environment is the default.
+#   ALLOW_DIRTY_TREE   Set to 1 to build from a working tree with uncommitted
+#                      changes. Off by default: the tag is the commit, so a dirty
+#                      tree would label the image with a revision whose content it
+#                      does not have, and one commit could then produce two
+#                      different images. Only for debugging.
 #
 # Exit codes: 0 when every requested image is built and both tags match, 1 on a
 # build or verification failure, 2 on a usage error.
@@ -106,6 +111,18 @@ done
 
 command -v docker >/dev/null 2>&1 || fail "docker CLI not found in PATH"
 command -v git >/dev/null 2>&1 || fail "git CLI not found in PATH"
+
+# The tag below is the commit, so an image built from a working tree with pending
+# changes would carry a revision it does not match: the same SHA could then name
+# two different images, and the release battery would certify a mislabelled
+# artifact. Refused before building anything; ALLOW_DIRTY_TREE=1 is the escape
+# hatch for debugging, never for a release.
+if [[ -n "$(git -C "${repo_root}" status --porcelain)" ]]; then
+  if [[ "${ALLOW_DIRTY_TREE:-0}" != 1 ]]; then
+    fail "the working tree has uncommitted changes and the image tag is the commit; commit or stash first (ALLOW_DIRTY_TREE=1 overrides)"
+  fi
+  echo "build-images: WARNING building from a dirty tree; the tag will not describe the content (ALLOW_DIRTY_TREE=1)" >&2
+fi
 
 # The short SHA is what makes a deployment reproducible: without a commit there
 # is no immutable identifier to tag with.
