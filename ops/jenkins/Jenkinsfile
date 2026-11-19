@@ -70,7 +70,18 @@ pipeline {
                 stage('Backend') {
                     steps {
                         sh './scripts/ci-suite-scope.sh'
-                        sh './mvnw -B -ntp verify'
+                        // `clean` is the one difference from the chain §8 runs
+                        // by hand, and the workspace is why: the one of a branch
+                        // or PR job survives between builds, so the XML left in
+                        // target/surefire-reports by an earlier red build is
+                        // still there when the junit step of a green one reads
+                        // the directory, and it turns that green build UNSTABLE.
+                        // Reproduced in task 9.1: the fixing commit deleted the
+                        // deliberate test, Maven finished BUILD SUCCESS and the
+                        // build still reported the deleted test as a failure —
+                        // and the status, published before junit, called it a
+                        // success while Jenkins was marking it UNSTABLE.
+                        sh './mvnw -B -ntp clean verify'
                     }
                 }
                 // Same chain PROJECT.md §8 runs by hand: reproducible install
@@ -241,22 +252,24 @@ pipeline {
     }
 
     post {
-        // The status is the gate and the reports are the diagnosis, so both run
-        // on a green and on a red build, and the archive is in the `finally`:
-        // a build that could not publish its state still leaves its reports
-        // behind (design D10, task 8.1).
+        // The archive goes first and the status in the `finally` (design D10 and
+        // D7, corrected in task 9.1). Archiving first is what makes the status
+        // describe the final result: `junit` can still turn a green build into
+        // UNSTABLE, and a status published before it would announce a success
+        // the build ends up not having. The `finally` is what keeps a failed
+        // archive from leaving the gate without a verdict — an unpublishable
+        // status would block the merge forever, because 8.2 requires it — and
+        // the reports are already archived at that point.
         always {
             script {
                 try {
+                    load('ops/jenkins/vars/ciArchiveReports.groovy').call()
+                } finally {
                     // The commit the build represents (ciGitSha: the PR head),
                     // published with the credential of the store by id — the PAT
                     // is masked in the log and never travels in the Jenkinsfile.
                     def sha = load('ops/jenkins/vars/ciGitSha.groovy').call()
                     load('ops/jenkins/vars/ciPublishStatus.groovy').call(sha: sha)
-                } finally {
-                    // A report is worth more in the build that failed, so it is
-                    // archived on both paths (design D10).
-                    load('ops/jenkins/vars/ciArchiveReports.groovy').call()
                 }
             }
         }
