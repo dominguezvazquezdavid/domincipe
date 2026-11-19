@@ -233,6 +233,24 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
 
 Esperado: `200` y `201`. Cualquier otro código es un permiso mal puesto y dice cuál: en el primero, *Pull requests* o *Metadata*; en el segundo, *Commit statuses*. `Contents: read` no tiene comprobación propia aquí: lo ejerce el propio build al clonar.
 
+### Escaneo de PRs y merge
+
+El *branch source* **no recibe webhooks**: el controlador vive en `localhost` y GitHub no puede entregar avisos a una dirección no pública, así que el job escanea **cada 5 minutos** (`PeriodicFolderTrigger` con `spec * * * * *` e `interval` de `300000` ms en `ops/jenkins/casc/jenkins.yaml`). Un push o la apertura de un PR se construye en el siguiente escaneo (≤ 5 minutos), sin intervención manual; el estado sí llega al commit porque la llamada es saliente, de Jenkins a la API de GitHub, con el PAT de la sección anterior (design D7).
+
+Para mergear en `develop` o `main` hay que tener en verde el check **`domincipe`**: es el contexto que publica el pipeline sobre el *head* del PR (`CI_STATUS_CONTEXT` en `ops/jenkins/Jenkinsfile`, `POST /repos/{owner}/{repo}/statuses/{sha}`) y el único que exigen los rulesets `protect-develop` (27441336) y `protect-main` (27441301) en su regla `required_status_checks`. Los estados que añade el plugin de GitHub Branch Source (`continuous-integration/jenkins/pr-head` y `continuous-integration/jenkins/branch`) son informativos y **no** están exigidos. Un build rojo deja `domincipe` en `failure` y la rama rechaza el merge (`mergeStateStatus: BLOCKED`); los dos rulesets están `enforcement: active` y sin `bypass_actors`, así que tampoco el propietario los salta, y el merge exige además la regla `pull_request` (0 aprobaciones, hilos resueltos) —`main` añade `required_linear_history`—.
+
+La fuente de esa regla es la API, que devuelve exactamente el contexto que enumera este README:
+
+```bash
+gh api repos/dominguezvazquezdavid/domincipe/rulesets/27441336 \
+  --jq '[.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]'
+gh api repos/dominguezvazquezdavid/domincipe/rulesets/27441301 \
+  --jq '[.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]'
+# las dos salidas: ["domincipe"]
+```
+
+En el PR, `gh pr checks <pr>` muestra `domincipe` enlazando al build (`target_url` = `BUILD_URL`); con ese check en verde, los hilos resueltos y —en `main`— el historial lineal, el merge queda disponible. El alcance del PAT (los cuatro permisos de la tabla) y su caducidad de **90 días** —el token en uso vence el **2027-02-15**— están en la sección anterior.
+
 ---
 
 ## Estructura del repositorio
