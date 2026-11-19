@@ -123,6 +123,136 @@ scripts/verify-shutdown.sh      # apagado ordenado con una petición en curso (r
 
 ---
 
+## Integración continua
+
+El CI es un stack local reproducible en `ops/jenkins/`: un controlador Jenkins con la toolchain fijada (Temurin, Maven, Node.js, `buildctl`, Syft y Trivy) y un `buildkitd` rootless que construye las imágenes sin daemon. El contrato completo —pipeline, SBOM y escaneo— vive en el change `ci-pipeline` (`openspec/changes/ci-pipeline/`).
+
+### Requisitos del host para el builder rootless
+
+El builder (`moby/buildkit:v0.35.0-rootless`) corre sin `root` y sin `privileged`, pero depende de que el host permita *user namespaces* sin privilegios. Comprobado el **2026-11-17** en la máquina de desarrollo:
+
+| Comprobación | Valor verificado | Requisito |
+|---|---|---|
+| `sysctl user.max_user_namespaces` | `56066` | Valor > `0`. Si es `0`, `buildkitd` falla con `…/proc/sys/user/max_user_namespaces needs to be set to non-zero`; se corrige con `sysctl -w user.max_user_namespaces=<N>` |
+| `sysctl kernel.apparmor_restrict_unprivileged_userns` | `0` | `0` cuando el host usa AppArmor (Ubuntu 24.04 y posteriores). Con `1`, `buildkitd` falla con `fork/exec /proc/self/exe: permission denied`; se corrige añadiendo `kernel.apparmor_restrict_unprivileged_userns=0` en `/etc/sysctl.d/` y ejecutando `sudo sysctl -p` |
+| `/etc/subuid` | `domin:100000:65536` | Una entrada para el usuario del builder con un subrango de UIDs, que es el mapeo de los *user namespaces* (referencia: <https://rootlesscontaine.rs/getting-started/common/subuid/>) |
+| `/dev/fuse` | `crw-rw-rw- 1 root root 10, 229` | Presente y accesible. Solo lo usa el snapshotter `fuse-overlayfs` (kernel < 4.18); con kernel ≥ 5.11 el builder usa `overlayfs` |
+
+El host verificado cumple las cuatro condiciones (kernel `7.0.0-38-generic`, AppArmor activo). Además, el contenedor del builder necesita los tres `--security-opt` que documenta BuildKit v0.35.0 —`seccomp=unconfined`, `apparmor=unconfined` y `systempaths=unconfined`—: sin el último, cada `RUN` no puede montar su propio `/proc` y el build falla con `error mounting "proc" to rootfs at "/proc": … flags=MS_NOSUID|MS_NODEV|MS_NOEXEC: operation not permitted`. Reproducido el **2026-11-17** quitando ese flag: es la misma causa que el `mount proc:/proc (via /proc/self/fd/6), flags: 0xe: operation not permitted` de `docs/rootless.md`, con el formato de un `runc` más nuevo. Al comprobarlo, ojo: Docker 29.10.0 **no** muestra `systempaths=unconfined` en `docker inspect` aunque esté aplicado; la prueba válida es que un `RUN` llegue a ejecutarse.
+
+### Comprobación previa del host
+
+`scripts/ci-preflight.sh` reúne esos requisitos en una comprobación de solo lectura que se ejecuta **en el host**, nunca dentro de un contenedor: desde ahí, los sysctls y `/etc/subuid` que se leen no son los que consumirá `rootlesskit`, así que un verde en esa posición no significaría nada. Falla nombrando el requisito y el ajuste que lo corrige, en lugar de dejar que el problema aparezca como un error opaco del builder:
+
+```bash
+scripts/ci-preflight.sh
+```
+
+Comprueba, en orden:
+
+- `docker` y el plugin `docker compose` v2.
+- El kernel. Con 5.11 o posterior, BuildKit usa `overlayfs`; por debajo **no falla**: avisa de que el snapshotter pasará a `fuse-overlayfs`.
+- `user.max_user_namespaces > 0`.
+- `kernel.apparmor_restrict_unprivileged_userns = 0`. En un host sin AppArmor la clave no existe y no hay nada que comprobar.
+- Una entrada para el usuario actual en `/etc/subuid` y en `/etc/subgid`, por nombre o por UID/GID.
+- `/dev/fuse` presente y accesible. Solo es obligatorio si el kernel es anterior a 5.11; por encima, su ausencia queda como aviso.
+- El puerto de Jenkins libre. Lo resuelve con la precedencia de Compose —entorno, después `ops/jenkins/.env` y, si no hay ninguno, el `8095` del compose—, y si quien lo ocupa es este mismo stack ya levantado no lo trata como conflicto.
+
+Termina con código 0 cuando el host está listo, 1 cuando falta un requisito y 2 ante un uso incorrecto; debe salir 0 antes de `up`.
+
+### Arranque del stack
+
+```bash
+scripts/ci-preflight.sh                                        # en el host; debe salir 0
+docker compose -f ops/jenkins/docker-compose.yml up -d --wait
+```
+
+- **Jenkins**: <http://localhost:8095/> — el puerto lo fija `JENKINS_PORT`. Nada de la configuración se hace en la interfaz: los plugins vienen de `ops/jenkins/plugins.txt` y el nodo, el job multibranch y la credencial `github-token` de `ops/jenkins/casc/`, que JCasC aplica en cada arranque. Lo único manual es autenticarse: en un volumen nuevo Jenkins crea el usuario `admin` con la contraseña que imprime el log y deja en `/var/jenkins_home/secrets/initialAdminPassword` (comprobado el **2026-11-17** en un arranque en frío: con esa contraseña `/api/json` responde 200 sin completar ningún asistente).
+- **Builder**: `buildkitd`, rootless y sin puerto publicado. El pipeline lo alcanza por el socket Unix del volumen `buildkit-run`, que los dos contenedores comparten; no hay daemon Docker ni montaje de `/var/run/docker.sock`.
+- **Aislamiento**: proyecto Compose propio (`domincipe-ci`), red propia (`ci-net`) y siete volúmenes nombrados (`jenkins-home`, `buildkit-run`, `buildkit-state`, `buildkit-cache`, `oci-out`, `maven-repo`, `npm-cache`). `ops/jenkins/docker-compose.yml` está **fuera** del `COMPOSE_FILE` de la raíz, así que el CI no arranca con el entorno de desarrollo ni comparte nada con él (design D11).
+
+El stack **no necesita configuración**: cada valor trae su default en el propio compose y un clon limpio arranca sin ningún `.env`; el único valor opcional es el PAT de la sección siguiente, sin el cual el escaneo de PRs no es viable. Para cambiar cualquier variable se escribe `ops/jenkins/.env` (ignorado por git) o se exporta en el shell. El `.env` de la raíz **no** se lee aquí, porque Compose busca el `.env` en el *project directory*, que con `-f ops/jenkins/docker-compose.yml` es `ops/jenkins/`; `.env.example` documenta las variables de los dos stacks, con esa misma advertencia en su bloque de CI (tarea 3.4).
+
+Para apagarlo:
+
+```bash
+docker compose -f ops/jenkins/docker-compose.yml down      # conserva el estado
+docker compose -f ops/jenkins/docker-compose.yml down -v   # la próxima vez, arranque en frío
+```
+
+### PAT de GitHub para el CI
+
+El job multibranch descubre ramas y PRs por la API de GitHub y publica el resultado del build en el commit, y las dos cosas son llamadas salientes: no hace falta webhook ni que el controlador sea accesible desde fuera (design D7). Para eso el stack lleva un **PAT *fine-grained*** en la credencial `github-token` que declara `ops/jenkins/casc/jenkins.yaml`. JCasC guarda la **referencia**, nunca el valor: el token entra por la variable `GITHUB_TOKEN` del stack y git no lo ve jamás (design D6).
+
+Sin PAT el stack arranca igual —la credencial queda vacía—, pero el *branch source* consulta la API como anónimo (60 peticiones por hora e IP) y el limitador del plugin duerme unos seis minutos antes de cada llamada, así que el primer indexado no termina en un tiempo razonable. Con el PAT son 5.000 peticiones por hora y el escaneo es real.
+
+**Creación.** GitHub no ofrece API ni CLI para crear un PAT *fine-grained*: se crea en <https://github.com/settings/personal-access-tokens/new> con *Token name* `domincipe-ci`, *Expiration* de **90 días**, *Repository access* → **Only select repositories** → `domincipe`, y en *Repository permissions* exactamente estos cuatro y ningún otro:
+
+| Permiso | Nivel | Para qué |
+|---|---|---|
+| `Contents` | Read-only | Leer el `Jenkinsfile` y el árbol del repositorio al construir |
+| `Pull requests` | Read-only | Descubrir los PRs y la cabeza de cada uno (`GET /repos/{owner}/{repo}/pulls`) |
+| `Commit statuses` | Read and write | Publicar el resultado en el commit (`POST /repos/{owner}/{repo}/statuses/{sha}`) |
+| `Metadata` | Read-only | Obligatorio: GitHub lo añade solo en cuanto se concede cualquier otro |
+
+`Metadata` se marca sola; las otras tres no vienen por defecto. Un PAT clásico con `repo:status` **no** sirve, porque no descubre PRs (design D7).
+
+**Caducidad y rotación.** El token en uso se creó el **2026-11-17** con caducidad de 90 días, el **2027-02-15**; desde esa fecha el pipeline deja de publicar estado, así que se renueva antes. Rotar no exige borrar volúmenes ni tocar el job:
+
+1. Crear el token nuevo con el mismo alcance que la tabla.
+2. Escribirlo en `ops/jenkins/.env`, que es el único sitio donde vive (ignorado por la regla `.env` de `.gitignore`):
+
+   ```bash
+   GITHUB_TOKEN=github_pat_...
+   ```
+
+3. `docker compose -f ops/jenkins/docker-compose.yml up -d --wait` — Compose recrea el contenedor al cambiar su entorno y JCasC reescribe la credencial al arrancar. Comprobado el **2026-11-17**: tras cambiar el valor, `up -d` recrea el contenedor (ID y `Created` nuevos) y el secreto de `github-token` en `credentials.xml` pasa de 58 a 166 caracteres de ciphertext, sin `down -v`.
+4. Verificar con los dos `curl` de abajo y, cuando exista el `Jenkinsfile`, con un escaneo del job.
+5. Revocar el token anterior en GitHub **después** del paso 4, nunca antes: hasta que el nuevo funciona, el viejo es la única credencial válida.
+
+**Verificación del alcance.** El token se lee del `.env` para que no acabe en el historial del shell ni en la salida de ningún comando:
+
+```bash
+set -a; . ops/jenkins/.env; set +a
+
+# Pull requests: read + Metadata: read -> 200 con la lista de PRs
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H 'Accept: application/vnd.github+json' \
+  https://api.github.com/repos/dominguezvazquezdavid/domincipe/pulls
+
+# Commit statuses: write -> 201, y el estado aparece en el commit. El sha tiene
+# que existir ya en GitHub: se publica sobre un commit del remoto, no local
+SHA=$(git rev-parse origin/develop)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H 'Accept: application/vnd.github+json' \
+  "https://api.github.com/repos/dominguezvazquezdavid/domincipe/statuses/$SHA" \
+  -d '{"state":"success","context":"domincipe/pat-check","description":"PAT scope check"}'
+```
+
+Esperado: `200` y `201`. Cualquier otro código es un permiso mal puesto y dice cuál: en el primero, *Pull requests* o *Metadata*; en el segundo, *Commit statuses*. `Contents: read` no tiene comprobación propia aquí: lo ejerce el propio build al clonar.
+
+### Escaneo de PRs y merge
+
+El *branch source* **no recibe webhooks**: el controlador vive en `localhost` y GitHub no puede entregar avisos a una dirección no pública, así que el job escanea **cada 5 minutos** (`PeriodicFolderTrigger` con `spec * * * * *` e `interval` de `300000` ms en `ops/jenkins/casc/jenkins.yaml`). Un push o la apertura de un PR se construye en el siguiente escaneo (≤ 5 minutos), sin intervención manual; el estado sí llega al commit porque la llamada es saliente, de Jenkins a la API de GitHub, con el PAT de la sección anterior (design D7).
+
+Para mergear en `develop` o `main` hay que tener en verde el check **`domincipe`**: es el contexto que publica el pipeline sobre el *head* del PR (`CI_STATUS_CONTEXT` en `ops/jenkins/Jenkinsfile`, `POST /repos/{owner}/{repo}/statuses/{sha}`) y el único que exigen los rulesets `protect-develop` (27441336) y `protect-main` (27441301) en su regla `required_status_checks`. Los estados que añade el plugin de GitHub Branch Source (`continuous-integration/jenkins/pr-head` y `continuous-integration/jenkins/branch`) son informativos y **no** están exigidos. Un build rojo deja `domincipe` en `failure` y la rama rechaza el merge (`mergeStateStatus: BLOCKED`); los dos rulesets están `enforcement: active` y sin `bypass_actors`, así que tampoco el propietario los salta, y el merge exige además la regla `pull_request` (0 aprobaciones, hilos resueltos) —`main` añade `required_linear_history`—.
+
+La fuente de esa regla es la API, que devuelve exactamente el contexto que enumera este README:
+
+```bash
+gh api repos/dominguezvazquezdavid/domincipe/rulesets/27441336 \
+  --jq '[.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]'
+gh api repos/dominguezvazquezdavid/domincipe/rulesets/27441301 \
+  --jq '[.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]'
+# las dos salidas: ["domincipe"]
+```
+
+En el PR, `gh pr checks <pr>` muestra `domincipe` enlazando al build (`target_url` = `BUILD_URL`); con ese check en verde, los hilos resueltos y —en `main`— el historial lineal, el merge queda disponible. El alcance del PAT (los cuatro permisos de la tabla) y su caducidad de **90 días** —el token en uso vence el **2027-02-15**— están en la sección anterior.
+
+---
+
 ## Estructura del repositorio
 
 ```
@@ -149,7 +279,7 @@ scripts/verify-shutdown.sh      # apagado ordenado con una petición en curso (r
 ├── ops/                   # operación del proyecto (local y CI)
 │   ├── docker/            # Dockerfiles y nginx.conf
 │   ├── compose/           # docker-compose.{base,dev,obs}.yml + obs/prometheus.yml
-│   └── jenkins/           # pendiente: Jenkinsfile y shared library (change de CI)
+│   └── jenkins/           # CI: Dockerfile del controlador, docker-compose.yml y plugins.txt
 ├── pom.xml                # parent Maven multi-módulo
 └── .env.example           # plantilla de configuración (el .env real nunca se versiona)
 ```

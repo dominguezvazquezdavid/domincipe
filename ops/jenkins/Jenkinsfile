@@ -1,0 +1,277 @@
+// Pull-request gate of the Domincipe monorepo (change ci-pipeline, task 5.1).
+//
+// Declarative pipeline: 5.1 landed the skeleton — the agent label of design D8,
+// the retention of D10, the stages in the order D9 fixes and the always-post
+// that archives —, 5.2 and 5.3 filled the quality stages, 5.4 runs them at the
+// same time, 6.1 builds the seven images, 6.2 verifies their references and 6.3
+// that the local and CI build paths share the same contract. 7.1 inventories
+// every archive with Syft and 7.2 gates them with Trivy. 8.1 publishes the
+// result as the commit status GitHub shows on the pull request.
+// Nothing here omits tests or lowers a threshold: those options are exactly
+// what PROJECT.md §8 forbids.
+//
+// The helpers under ops/jenkins/vars/ are loaded by path instead of being a
+// registered global library: a library is resolved from an SCM, and the commit
+// that introduces it cannot be in that SCM yet. Loading them from the workspace
+// checkout keeps the helpers versioned with the pipeline that uses them.
+
+pipeline {
+    // The label the JCasC node declares (design D8): moving the builds to an
+    // agent later is a label change, not a pipeline rewrite.
+    agent { label 'ci' }
+
+    options {
+        // Retention of a live job (design D10). The orphaned-item strategy in
+        // casc/jenkins.yaml covers the jobs that disappear instead.
+        buildDiscarder(logRotator(numToKeepStr: '10', daysToKeepStr: '30'))
+    }
+
+    environment {
+        // vite.config.ts aborts build and test when this variable is missing, so
+        // the gate has to define it (web-shell spec). The value is the same
+        // default scripts/build-images.sh bakes into the local bundle, which
+        // keeps the build-arg of the image stage identical (design D3, task 6.1).
+        VITE_API_BASE_URL = 'http://localhost:8080'
+        // The rootless builder's Unix socket, shared with the controller through
+        // the buildkit-run volume (design D2). It is defined once here: the
+        // `debug workers` probe and ciBuildImage.groovy read this same variable,
+        // so the address cannot drift between the two.
+        BUILDKIT_HOST = 'unix:///run/user/1000/buildkit/buildkitd.sock'
+        // The GitHub repository the build result is published to, and the API
+        // it is published through (task 8.1). It is the same repository the
+        // branch source polls, so the status lands on the commit the build was
+        // started from.
+        GITHUB_REPOSITORY = 'dominguezvazquezdavid/domincipe'
+        GITHUB_API_URL = 'https://api.github.com'
+        // Name of the check this pipeline publishes. Task 8.2 requires exactly
+        // this name in the protection of develop and main, and task 8.3
+        // documents it, so it is declared once, here.
+        CI_STATUS_CONTEXT = 'domincipe'
+    }
+
+    stages {
+        // Quality first, so a red test does not wait for the image stages
+        // (design D9). The two halves are independent — Maven and npm share
+        // nothing but the checkout — so they run at the same time (task 5.4):
+        // the gate lasts as long as the slower half instead of the sum.
+        // failFast marks the build red as soon as either half fails instead of
+        // waiting for its sibling; it aborts nothing that was going to change
+        // the verdict, and a green half is never reported as a pass for the
+        // build. A failure in either branch is a FAILURE of the build.
+        stage('Quality') {
+            failFast true
+            parallel {
+                // The scope guard goes before Maven: a *IT.java needs a Docker
+                // daemon the gate does not have, and it has to fail naming the
+                // file instead of dying inside Testcontainers (design D13,
+                // task 5.6). The surefire results and the per-module JaCoCo
+                // reports this stage writes are archived by the always-post of
+                // design D10.
+                stage('Backend') {
+                    steps {
+                        sh './scripts/ci-suite-scope.sh'
+                        // `clean` is the one difference from the chain §8 runs
+                        // by hand, and the workspace is why: the one of a branch
+                        // or PR job survives between builds, so the XML left in
+                        // target/surefire-reports by an earlier red build is
+                        // still there when the junit step of a green one reads
+                        // the directory, and it turns that green build UNSTABLE.
+                        // Reproduced in task 9.1: the fixing commit deleted the
+                        // deliberate test, Maven finished BUILD SUCCESS and the
+                        // build still reported the deleted test as a failure —
+                        // and the status, published before junit, called it a
+                        // success while Jenkins was marking it UNSTABLE.
+                        sh './mvnw -B -ntp clean verify'
+                    }
+                }
+                // Same chain PROJECT.md §8 runs by hand: reproducible install
+                // from the lock file, lint, type-check plus bundle and tests.
+                // npm keeps its cache in ~/.npm, which is the npm-cache volume
+                // of the controller, so a second build does not download the
+                // registry again. VITE_API_BASE_URL comes from the pipeline
+                // environment: without it vite.config.ts fails. `dir` is
+                // thread-scoped, so this branch works in its own directory
+                // while the Backend branch builds at the root of the checkout.
+                stage('Frontend') {
+                    steps {
+                        dir('apps/web-frontend') {
+                            sh 'npm ci'
+                            sh 'npm run lint'
+                            sh 'npm run build'
+                            sh 'npm test'
+                        }
+                    }
+                }
+            }
+        }
+        stage('Images') {
+            steps {
+                script {
+                    // Artefacts in /out are per build — the OCI archives and,
+                    // from task 7.2 on, the layouts extracted from them — so the
+                    // stage starts by emptying the volume instead of letting it
+                    // grow with every run (design D3, checked in task 6.5).
+                    sh 'find /out -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
+
+                    // Ask the daemon for its workers before building: an
+                    // unreachable socket fails here with the builder's own
+                    // message, not as a build that looks slow on a cold cache
+                    // (design D3, same probe as the compose healthcheck).
+                    sh 'buildctl debug workers'
+
+                    // Short SHA computed exactly as scripts/build-images.sh does
+                    // it. The immutable reference and the
+                    // org.opencontainers.image.revision label have to be the
+                    // same string in the local build and in the CI build of one
+                    // commit (design D3, checked in task 6.3).
+                    def sha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+
+                    def buildImage = load('ops/jenkins/vars/ciBuildImage.groovy')
+
+                    // Same Dockerfiles, build args and MODULE values as the
+                    // local script, so only the builder differs between the two
+                    // paths (design D3). One buildctl call per image writes one
+                    // OCI archive with the sha and the latest reference, which is
+                    // what makes them unable to drift apart.
+                    [
+                        [image: 'api-gateway',          dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/api-gateway']],
+                        [image: 'auth-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/auth-service']],
+                        [image: 'user-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/user-service']],
+                        [image: 'recipe-service',       dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/recipe-service']],
+                        [image: 'media-service',        dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/media-service']],
+                        [image: 'notification-service', dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/notification-service']],
+                        // The SPA bakes the API endpoint in at build time: without
+                        // it vite.config.ts fails (web-shell spec). The value is
+                        // the pipeline environment one, which equals the local
+                        // script's default (design D3).
+                        [image: 'web-frontend',         dockerfile: 'web-frontend.Dockerfile',   buildArgs: [VITE_API_BASE_URL: env.VITE_API_BASE_URL]],
+                    ].each { entry ->
+                        buildImage.call(entry + [sha: sha])
+                    }
+
+                    // Both references of every archive must resolve to the same
+                    // manifest (task 6.2). The single --output of D3 is designed
+                    // to make them inseparable; this turns that into a checked
+                    // property, so a divergent pair fails the build here instead
+                    // of shipping two tags of different images.
+                    sh "./scripts/ci-verify-oci-refs.sh --sha '${sha}' /out/*.tar"
+
+                    // Same Dockerfiles, same build args and the same revision
+                    // label as the local scripts/build-images.sh path, checked
+                    // on the archives just built (task 6.3). The gate passes the
+                    // seven archives; --local is the host spot check that
+                    // compares an archive against the local image of the commit.
+                    sh "./scripts/ci-verify-build-parity.sh --sha '${sha}' /out/*.tar"
+                }
+            }
+        }
+        // Syft reads the OCI archive the Images stage wrote, so the inventory
+        // needs neither a daemon nor a second export (design D4, task 7.1). The
+        // archives themselves are the list: an image that was not built cannot
+        // get an SBOM, and the matrix is not repeated here. /out is emptied at
+        // the start of Images, so no archive from a previous build can slip in.
+        // Output goes to the workspace `sbom/` directory, which is the glob the
+        // always-post archives (ciArchiveReports.groovy, design D10).
+        stage('SBOM') {
+            steps {
+                // --source-name and --source-version fill the CycloneDX
+                // metadata component: on its own, Syft names an archive by its
+                // path, and the spec requires each SBOM to identify its image
+                // and the commit that produced it. The short sha is derived as
+                // in the Images stage, so it matches the archive's tag.
+                sh '''
+                    rm -rf sbom
+                    mkdir -p sbom
+                    set -- /out/*.tar
+                    if [ ! -f "$1" ]; then
+                        echo 'SBOM: no OCI archive under /out; the Images stage has to run first' >&2
+                        exit 1
+                    fi
+                    sha="$(git rev-parse --short HEAD)"
+                    for archive in "$@"; do
+                        image="${archive##*/}"
+                        image="${image%.tar}"
+                        echo "SBOM: ${image} at ${sha}"
+                        syft --quiet --from oci-archive "$archive" \
+                          --source-name "domincipe/${image}" \
+                          --source-version "$sha" \
+                          -o "cyclonedx-json=sbom/${image}.cdx.json"
+                    done
+                '''
+            }
+        }
+        // Trivy 0.76.2 reads a `docker save` tarball or an OCI layout on disk,
+        // never an OCI archive (design D4: it fails with `stat …/index.json:
+        // not a directory`), so each .tar is extracted once and the directory is
+        // the scan input — no second export and no daemon. The layout shares the
+        // fate of the archive it came from: the next Images run empties /out.
+        //
+        // The stage scans every archive before failing, because the report of a
+        // red build is what diagnoses it (design D10). A finding listed in the
+        // versioned ignore file does not fail the build; Trivy omits it from the
+        // report, and the identifier with its justification and expiry lives in
+        // that file, which is the versioned record of the exception (design D4,
+        // D9; --show-suppressed is not used because on 0.76.2 it restores the
+        // findings suppressed by status or VEX, not those of --ignorefile). The
+        // severity and exit code are the gate of D9: relaxing them needs a spec
+        // change, never a pipeline parameter.
+        stage('Scan') {
+            steps {
+                sh '''
+                    rm -rf security
+                    mkdir -p security
+                    set -- /out/*.tar
+                    if [ ! -f "$1" ]; then
+                        echo 'Scan: no OCI archive under /out; the Images stage has to run first' >&2
+                        exit 1
+                    fi
+                    failed=''
+                    for archive in "$@"; do
+                        image="${archive##*/}"
+                        image="${image%.tar}"
+                        echo "Scan: ${image}"
+                        mkdir -p "/out/${image}"
+                        tar -xf "$archive" -C "/out/${image}"
+                        if trivy image --input "/out/${image}" \
+                          --ignorefile "${WORKSPACE}/ops/jenkins/.trivyignore" \
+                          --severity HIGH,CRITICAL --exit-code 1 \
+                          --format json --output "security/${image}.json"; then
+                            echo "Scan: ${image} passed the HIGH/CRITICAL gate"
+                        else
+                            echo "Scan: ${image} failed the HIGH/CRITICAL gate; see security/${image}.json" >&2
+                            failed="${failed} ${image}"
+                        fi
+                    done
+                    if [ -n "${failed}" ]; then
+                        echo "Scan: HIGH/CRITICAL findings in${failed}" >&2
+                        exit 1
+                    fi
+                '''
+            }
+        }
+    }
+
+    post {
+        // The archive goes first and the status in the `finally` (design D10 and
+        // D7, corrected in task 9.1). Archiving first is what makes the status
+        // describe the final result: `junit` can still turn a green build into
+        // UNSTABLE, and a status published before it would announce a success
+        // the build ends up not having. The `finally` is what keeps a failed
+        // archive from leaving the gate without a verdict — an unpublishable
+        // status would block the merge forever, because 8.2 requires it — and
+        // the reports are already archived at that point.
+        always {
+            script {
+                try {
+                    load('ops/jenkins/vars/ciArchiveReports.groovy').call()
+                } finally {
+                    // The commit the build represents (ciGitSha: the PR head),
+                    // published with the credential of the store by id — the PAT
+                    // is masked in the log and never travels in the Jenkinsfile.
+                    def sha = load('ops/jenkins/vars/ciGitSha.groovy').call()
+                    load('ops/jenkins/vars/ciPublishStatus.groovy').call(sha: sha)
+                }
+            }
+        }
+    }
+}

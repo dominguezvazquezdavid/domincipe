@@ -1,0 +1,137 @@
+# CI stack of the project (design D1, D2, D10, D11).
+#
+# Two containers and a Unix socket, never a Docker daemon: `buildkitd` builds
+# the seven project images and `jenkins` drives it with `buildctl`. No container
+# here mounts /var/run/docker.sock and none runs as root.
+#
+#   docker compose -f ops/jenkins/docker-compose.yml up --wait
+#
+# This file is deliberately outside the root COMPOSE_FILE: the CI stack is not
+# part of the development environment and must not start with it (design D11).
+# Compose reads .env from the project directory, which with `-f` is ops/jenkins/,
+# so every value below carries its default here and a clean clone needs no
+# configuration at all (design D11, task 3.4).
+
+name: domincipe-ci
+
+services:
+  buildkitd:
+    # Pinned by tag and index digest (PROJECT.md §4, design D1).
+    image: ${BUILDKIT_IMAGE:-moby/buildkit:v0.35.0-rootless@sha256:5987568f92dafbfb679879de59c1cd8d26597f5f6635c314e166164e2615870c}
+    restart: unless-stopped
+    # The three flags rootless BuildKit documents for containers (design D1).
+    # Without systempaths=unconfined every RUN fails to mount its own /proc:
+    # `error mounting "proc" to rootfs at "/proc": operation not permitted`.
+    # Docker 29.10.0 does not echo systempaths in `docker inspect` even when it
+    # applies it, so the only valid check is a build that reaches a RUN.
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+      - systempaths=unconfined
+    # Never `privileged:`: the image already runs as UID 1000 (design D1).
+    volumes:
+      # Socket shared with the controller. The image owns /run/user/1000
+      # (1000:0) and Docker copies that ownership into a fresh volume, which is
+      # what lets UID 1000 open the socket (design D2).
+      - buildkit-run:/run/user/1000
+      # Worker state: survives a restart of the builder, not `down -v`, so a
+      # cold start stays reproducible (design D3).
+      - buildkit-state:/home/user/.local/share/buildkit
+    healthcheck:
+      # buildctl ships in the rootless image (/usr/bin/buildctl), so the probe
+      # asks the daemon for its workers instead of just checking that the socket
+      # exists: the file can be there before the worker accepts work. This is
+      # also the pipeline's first step (design D3), so a cold build is not
+      # mistaken for a broken daemon.
+      test: ["CMD", "buildctl", "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock", "debug", "workers"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    stop_grace_period: 10s
+    networks:
+      - ci-net
+
+  jenkins:
+    # Built from ops/jenkins/Dockerfile: the pinned toolchain the stages use
+    # travels with the controller (design D5). The default tag is this build:
+    # an upstream controller has neither buildctl, Syft nor Trivy.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${JENKINS_IMAGE:-domincipe/jenkins:local}
+    restart: unless-stopped
+    depends_on:
+      buildkitd:
+        # Starts only once the builder answers `debug workers`, never after a
+        # fixed delay.
+        condition: service_healthy
+    ports:
+      # 8095 is free in the local environment: §9 already publishes 8080-8087,
+      # 9090, 3000, 7070, 8025, 1025 and 29092, and 8090 is taken by a container
+      # outside this project on the development host (design D11).
+      - "${JENKINS_PORT:-8095}:8080"
+    environment:
+      # JCasC applies every file under this directory on boot (design D6). The
+      # directory is a read-only bind mount of the versioned configuration, so
+      # the controller cannot rewrite it.
+      CASC_JENKINS_CONFIG: /var/jenkins_home/casc
+      # The controller's own address, which JCasC writes into the Jenkins
+      # location (task 8.1): Jenkins cannot detect it from inside the container
+      # and both the build links and the commit status point at it. It follows
+      # the published port unless set explicitly.
+      JENKINS_URL: ${JENKINS_URL:-http://localhost:${JENKINS_PORT:-8095}/}
+      # The credential value travels by reference only: JCasC writes
+      # `github-token` from this variable and git never holds it (design D6).
+      # Empty is a valid cold-clone state; task 4.3 brings the PAT.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    volumes:
+      # Same socket volume as the builder: the client side of design D2.
+      - buildkit-run:/run/user/1000
+      # Cache and artefacts are written by the buildctl client, so both live in
+      # the controller, not in the daemon (design D3, task 6.5).
+      - buildkit-cache:/cache
+      - oci-out:/out
+      # Controller state: jobs, credentials and the plugin store that makes
+      # `down -v` + `up` reproducible (design D6).
+      - jenkins-home:/var/jenkins_home
+      # Versioned controller configuration, read-only bind mount (design D6).
+      - ./casc:/var/jenkins_home/casc:ro
+      # Toolchain caches, separate volumes so wiping one does not wipe the
+      # other. The Dockerfile pre-creates these paths as the jenkins user
+      # because Docker only copies ownership into a volume when the path exists
+      # in the image; otherwise the volume is root-owned and unwritable.
+      - maven-repo:/var/jenkins_home/.m2/repository
+      - npm-cache:/var/jenkins_home/.npm
+    healthcheck:
+      # The login page is what tells a started controller from a ready one; the
+      # image ships curl at /usr/bin/curl. First boot also installs the plugins
+      # from /usr/share/jenkins/ref, hence the generous start period.
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:8080/login || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    # Above the graceful shutdown of the controller so a restart does not kill a
+    # running stage mid-flight (PROJECT.md §9).
+    stop_grace_period: 30s
+    networks:
+      - ci-net
+
+networks:
+  ci-net:
+    # Own network: the CI stack shares nothing with frontend-net, backend-net or
+    # obs-net of the local environment (design D11).
+    driver: bridge
+
+volumes:
+  # Controller side.
+  jenkins-home:
+  maven-repo:
+  npm-cache:
+  # Builder side: the shared socket, the daemon state and the build cache, plus
+  # the OCI archives and extracted layouts the Jenkins stages produce.
+  buildkit-run:
+  buildkit-state:
+  buildkit-cache:
+  oci-out:

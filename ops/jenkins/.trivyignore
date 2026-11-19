@@ -1,0 +1,16 @@
+# Exceptions of the vulnerability gate (design D4, D9).
+#
+# The Scan stage always passes this file to Trivy with --ignorefile, so an
+# exception is versioned, appears in the diff and is reviewed in the pull
+# request that adds it. It is the only way to silence a finding: no pipeline
+# parameter skips the scan and --ignore-unfixed is deliberately absent (D9).
+#
+# One finding per line, with its justification and an expiry date right above
+# it, so a stale exception is visible where it is declared:
+#
+#   # CVE-YYYY-NNNNN: expires YYYY-MM-DD - reason
+#   CVE-YYYY-NNNNN
+#
+# The file ships without entries: the gate breaks the build on every HIGH or
+# CRITICAL finding, and an exception only enters when a real false positive
+# justifies it.
