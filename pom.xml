@@ -26,7 +26,7 @@
 
     <groupId>com.domincipe</groupId>
     <artifactId>domincipe-parent</artifactId>
-    <version>0.3.0-SNAPSHOT</version>
+    <version>0.2.1-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Domincipe</name>

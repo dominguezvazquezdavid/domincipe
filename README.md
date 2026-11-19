@@ -119,6 +119,7 @@ Se puede desactivar con `APP_DOCS_ENABLED=false`, sin tocar código ni reconstru
 ```bash
 scripts/verify-environment.sh   # schemas de PostgreSQL, topics, bucket y SMTP (solo lectura)
 scripts/verify-shutdown.sh      # apagado ordenado con una petición en curso (reinicia el servicio)
+scripts/verify-version.sh       # versión del árbol contra el último tag y contra los servicios en marcha
 ```
 
 ---
@@ -323,7 +324,7 @@ Gitflow-lite: dos ramas permanentes —`main` para releases estables y funcional
 | `release/<x.y.z>` | `develop` | `main` (PR squash + tag `vX.Y.Z`) | al mergear |
 | `hotfix/<x.y.z>` | `main` | `main` y `develop` (PR squash) | al mergear |
 
-Un release se **congela** —solo arreglos, ninguna feature nueva— y solo pasa a `main` después de la batería completa sobre un entorno recreado: `./mvnw -B -ntp verify`, `npm ci && npm run lint && npm run build && npm test`, `docker compose up --wait` desde cero, `scripts/verify-environment.sh` y `scripts/verify-shutdown.sh`. De la release sobrevive el **tag anotado** `vX.Y.Z` sobre `main`; no hay rama `release` permanente. La regla completa y su porqué están en [PROJECT.md §7](./PROJECT.md).
+Un release se **congela** —solo arreglos, ninguna feature nueva— y solo pasa a `main` después de la batería completa sobre un entorno recreado: `./mvnw -B -ntp verify`, `npm ci && npm run lint && npm run build && npm test`, `scripts/build-images.sh` (las siete imágenes del árbol), `docker compose down -v` y `up --wait` desde cero, `scripts/verify-environment.sh`, `scripts/verify-shutdown.sh` y `scripts/verify-version.sh`. De la release sobrevive el **tag anotado** `vX.Y.Z` sobre `main`; no hay rama `release` permanente. La regla completa y su porqué están en [PROJECT.md §7](./PROJECT.md).
 
 ---
 
