@@ -69,6 +69,13 @@
         <jacoco-maven-plugin.version>0.8.16</jacoco-maven-plugin.version>
         <exec-maven-plugin.version>3.7.0</exec-maven-plugin.version>
         <!--
+          Release tooling (PROJECT.md §7): versions:set moves the single project version and
+          propagates it to the modules, so the release and the next-SNAPSHOT commits are made
+          by the tool and not by hand. Pinned like every other plugin instead of letting Maven
+          resolve whatever is newest, so the release step is reproducible.
+        -->
+        <versions-maven-plugin.version>2.25.2</versions-maven-plugin.version>
+        <!--
           Coverage gate from PROJECT.md §8, expressed as ratios because that is what
           JaCoCo compares: 0.80 = 80% of lines and 0.70 = 70% of branches per module.
         -->
@@ -159,6 +166,18 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
+                </plugin>
+
+                <!--
+                  Only declared so the release step runs a known version: versions:set is never
+                  bound to a phase, it is invoked by hand in the release branch (PROJECT.md §7).
+                  -DprocessAllModules is what makes it walk the whole reactor; without it only
+                  the module Maven was invoked in would change.
+                -->
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>versions-maven-plugin</artifactId>
+                    <version>${versions-maven-plugin.version}</version>
                 </plugin>
 
                 <!--
