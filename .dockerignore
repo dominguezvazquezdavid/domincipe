@@ -17,5 +17,19 @@ tmp
 # Documentation and change tracking live in the repository, not in the images.
 openspec
 
+# Pipeline output of the CI job: the SBOM and Scan stages write these two
+# directories at the root of the workspace, which is the build context. Leaving
+# them in makes `COPY . .` change between two builds of the same commit (803 kB
+# in the first build, 6.42 MB in the second) and defeats the builder cache: the
+# six Java `RUN mvn ... package` layers are rebuilt every time (task 9.2).
+sbom
+security
+
+# Environment files are read by Compose and the CI preflight, never copied into
+# an image. Without this rule `COPY . .` puts them in the build stage and
+# `export-cache mode=max` keeps that intermediate layer (with the GitHub PAT) in
+# the /cache volume of the controller.
+**/.env
+
 # Compose data volumes (task 7.4) must never reach a build.
 ops/compose/.volumes
