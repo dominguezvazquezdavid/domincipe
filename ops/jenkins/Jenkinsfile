@@ -1,14 +1,13 @@
-// Pull-request gate of the Domincipe monorepo (change ci-pipeline, task 5.1).
+// Pull-request gate of the Domincipe monorepo (changes ci-pipeline and ci-integration).
 //
-// Declarative pipeline: 5.1 landed the skeleton — the agent label of design D8,
-// the retention of D10, the stages in the order D9 fixes and the always-post
-// that archives —, 5.2 and 5.3 filled the quality stages, 5.4 runs them at the
-// same time, 6.1 builds the seven images, 6.2 verifies their references and 6.3
-// that the local and CI build paths share the same contract. 7.1 inventories
-// every archive with Syft and 7.2 gates them with Trivy. 8.1 publishes the
-// result as the commit status GitHub shows on the pull request.
-// Nothing here omits tests or lowers a threshold: those options are exactly
-// what PROJECT.md §8 forbids.
+// Declarative pipeline. ci-pipeline landed the skeleton —the agent label of design D8, the
+// retention of D10 and the always-post that archives—, the quality stages, the images, their
+// references, the build parity, the SBOM and the vulnerability scan. ci-integration added the
+// test daemon of the stack and, with it, the levels that need one: integration inside the
+// backend half, and the e2e plus the environment battery in the second group.
+//
+// Nothing here omits tests or lowers a threshold: those options are exactly what PROJECT.md §8
+// forbids, and the whole suite of the tree runs in one Maven invocation.
 //
 // The helpers under ops/jenkins/vars/ are loaded by path instead of being a
 // registered global library: a library is resolved from an SCM, and the commit
@@ -24,6 +23,17 @@ pipeline {
         // Retention of a live job (design D10). The orphaned-item strategy in
         // casc/jenkins.yaml covers the jobs that disappear instead.
         buildDiscarder(logRotator(numToKeepStr: '10', daysToKeepStr: '30'))
+        // A time mark per console line (task 5.2). The two groups below interleave their output,
+        // and without a mark per line the overlap is only readable as interleaving, never as
+        // time: `build.xml` keeps one <duration> for the whole build and nothing per branch
+        // (checked in the sixth build of the PR: a single `511890`, no stage elements at all).
+        // It is declared here, and not as the global setting of the timestamper plugin, because
+        // the decision belongs to this pipeline and is reviewed with it. The consequence is
+        // written down because it costs something: a branch whose Jenkinsfile predates this
+        // line —develop, the baseline of task 1.2— carries no marks, and its per-stage times
+        // cannot be recovered from `build.xml`, so that baseline has to be measured on a run
+        // that does carry the option instead of inferred from the old one.
+        timestamps()
     }
 
     environment {
@@ -37,6 +47,19 @@ pipeline {
         // `debug workers` probe and ciBuildImage.groovy read this same variable,
         // so the address cannot drift between the two.
         BUILDKIT_HOST = 'unix:///run/user/1000/buildkit/buildkitd.sock'
+        // The test daemon of the stack (change ci-integration, design D1). It is reached over
+        // ci-net by service name, never through a socket: no container of the stack mounts the
+        // host's. Declared once here so the integration, e2e and environment stages cannot
+        // disagree about which daemon they are talking to.
+        DOCKER_HOST = 'tcp://dind:2375'
+        // Testcontainers publishes the ports of its containers on the daemon's host, which is
+        // the dind container and not the controller: without this override the client would call
+        // 127.0.0.1 and get a connection refused for every container (design D4).
+        TESTCONTAINERS_HOST_OVERRIDE = 'dind'
+        // The browser runner of the smoke: the official image of the pinned Playwright version,
+        // with Chromium and its libraries inside. The same value the overlay of the e2e project
+        // defaults to, declared here because the stage also creates the container by hand.
+        PLAYWRIGHT_IMAGE = 'mcr.microsoft.com/playwright:v1.65.0-noble@sha256:9beb546099e11f52d62e505537914870e01a67e0e6b00ae41da4775324e73dbe'
         // The GitHub repository the build result is published to, and the API
         // it is published through (task 8.1). It is the same repository the
         // branch source polls, so the status lands on the commit the build was
@@ -50,26 +73,36 @@ pipeline {
     }
 
     stages {
-        // Quality first, so a red test does not wait for the image stages
-        // (design D9). The two halves are independent — Maven and npm share
-        // nothing but the checkout — so they run at the same time (task 5.4):
-        // the gate lasts as long as the slower half instead of the sum.
-        // failFast marks the build red as soon as either half fails instead of
-        // waiting for its sibling; it aborts nothing that was going to change
-        // the verdict, and a green half is never reported as a pass for the
-        // build. A failure in either branch is a FAILURE of the build.
+        // First group (change ci-integration, design D3). The three branches are independent —
+        // Maven, npm and BuildKit share nothing but the checkout — so they run at the same time
+        // and the gate lasts as long as the slower one instead of the sum. failFast marks the
+        // build red as soon as one fails instead of waiting for its siblings; it aborts nothing
+        // that was going to change the verdict, and a green branch is never reported as a pass
+        // for the build. A failure in any branch is a FAILURE of the build.
         stage('Quality') {
             failFast true
             parallel {
-                // The scope guard goes before Maven: a *IT.java needs a Docker
-                // daemon the gate does not have, and it has to fail naming the
-                // file instead of dying inside Testcontainers (design D13,
-                // task 5.6). The surefire results and the per-module JaCoCo
-                // reports this stage writes are archived by the always-post of
-                // design D10.
+                // The daemon probe goes before Maven: the backend half now runs the integration
+                // level too, so a daemon that is not there would surface as a Testcontainers
+                // timeout much later and hide the cause. It fails naming the daemon and the
+                // command that starts it (change ci-integration, design D8), and it is not a
+                // gate parameter: the level it protects is mandatory.
                 stage('Backend') {
                     steps {
-                        sh './scripts/ci-suite-scope.sh'
+                        sh '''
+                            # The context the level below depends on, printed so the log proves
+                            # which daemon it talked to instead of leaving it to inference (task
+                            # 5.1). Neither value is a secret: the PAT of the status travels only
+                            # through the credential binding of the post section. The shell expands
+                            # them, not Groovy — the block is single-quoted.
+                            echo "backend: DOCKER_HOST=${DOCKER_HOST} TESTCONTAINERS_HOST_OVERRIDE=${TESTCONTAINERS_HOST_OVERRIDE}"
+                            # The format names what it prints: root and server version are the
+                            # daemon's own fields, while the address is the variable above. It used
+                            # to read `DOCKER_HOST={{.DockerRootDir}}`, which labelled a path inside
+                            # the daemon with the name of the endpoint (build #6 of task 5.1).
+                            docker info --format 'daemon: root={{.DockerRootDir}} server={{.ServerVersion}}' \
+                              || { echo "backend: the test daemon at ${DOCKER_HOST} does not answer; start the CI stack with 'docker compose -f ops/jenkins/docker-compose.yml up --wait'" >&2; exit 1; }
+                        '''
                         // `clean` is the one difference from the chain §8 runs
                         // by hand, and the workspace is why: the one of a branch
                         // or PR job survives between builds, so the XML left in
@@ -81,6 +114,12 @@ pipeline {
                         // build still reported the deleted test as a failure —
                         // and the status, published before junit, called it a
                         // success while Jenkins was marking it UNSTABLE.
+                        //
+                        // One invocation for the whole suite, integration included:
+                        // failsafe is bound in every module, so `verify` runs the
+                        // *IT.java of the tree against the test daemon. Two Maven runs
+                        // (one for unit, one for ITs) would fight over target/, and
+                        // -DskipITs here is exactly what PROJECT.md §8 forbids.
                         sh './mvnw -B -ntp clean verify'
                     }
                 }
@@ -102,151 +141,271 @@ pipeline {
                         }
                     }
                 }
-            }
-        }
-        stage('Images') {
-            steps {
-                script {
-                    // Artefacts in /out are per build — the OCI archives and,
-                    // from task 7.2 on, the layouts extracted from them — so the
-                    // stage starts by emptying the volume instead of letting it
-                    // grow with every run (design D3, checked in task 6.5).
-                    sh 'find /out -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
+                // Images joins the first group (change ci-integration, design D3): it builds against
+                // buildkitd, not against the test daemon, and the build context excludes target/,
+                // node_modules/ and dist/ (.dockerignore), so it shares no file with Maven or npm.
+                // A stage that can run earlier without contending anything is time the gate does not
+                // spend twice.
+                stage('Images') {
+                    steps {
+                        script {
+                            // Artefacts in /out are per build — the OCI archives and,
+                            // from task 7.2 on, the layouts extracted from them — so the
+                            // stage starts by emptying the volume instead of letting it
+                            // grow with every run (design D3, checked in task 6.5).
+                            sh 'find /out -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
 
-                    // Ask the daemon for its workers before building: an
-                    // unreachable socket fails here with the builder's own
-                    // message, not as a build that looks slow on a cold cache
-                    // (design D3, same probe as the compose healthcheck).
-                    sh 'buildctl debug workers'
+                            // Ask the daemon for its workers before building: an
+                            // unreachable socket fails here with the builder's own
+                            // message, not as a build that looks slow on a cold cache
+                            // (design D3, same probe as the compose healthcheck).
+                            sh 'buildctl debug workers'
 
-                    // Short SHA computed exactly as scripts/build-images.sh does
-                    // it. The immutable reference and the
-                    // org.opencontainers.image.revision label have to be the
-                    // same string in the local build and in the CI build of one
-                    // commit (design D3, checked in task 6.3).
-                    def sha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                            // Short SHA computed exactly as scripts/build-images.sh does
+                            // it. The immutable reference and the
+                            // org.opencontainers.image.revision label have to be the
+                            // same string in the local build and in the CI build of one
+                            // commit (design D3, checked in task 6.3).
+                            def sha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
-                    def buildImage = load('ops/jenkins/vars/ciBuildImage.groovy')
+                            def buildImage = load('ops/jenkins/vars/ciBuildImage.groovy')
 
-                    // Same Dockerfiles, build args and MODULE values as the
-                    // local script, so only the builder differs between the two
-                    // paths (design D3). One buildctl call per image writes one
-                    // OCI archive with the sha and the latest reference, which is
-                    // what makes them unable to drift apart.
-                    [
-                        [image: 'api-gateway',          dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/api-gateway']],
-                        [image: 'auth-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/auth-service']],
-                        [image: 'user-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/user-service']],
-                        [image: 'recipe-service',       dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/recipe-service']],
-                        [image: 'media-service',        dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/media-service']],
-                        [image: 'notification-service', dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/notification-service']],
-                        // The SPA bakes the API endpoint in at build time: without
-                        // it vite.config.ts fails (web-shell spec). The value is
-                        // the pipeline environment one, which equals the local
-                        // script's default (design D3).
-                        [image: 'web-frontend',         dockerfile: 'web-frontend.Dockerfile',   buildArgs: [VITE_API_BASE_URL: env.VITE_API_BASE_URL]],
-                    ].each { entry ->
-                        buildImage.call(entry + [sha: sha])
+                            // Same Dockerfiles, build args and MODULE values as the
+                            // local script, so only the builder differs between the two
+                            // paths (design D3). One buildctl call per image writes one
+                            // OCI archive with the sha and the latest reference, which is
+                            // what makes them unable to drift apart.
+                            [
+                                [image: 'api-gateway',          dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/api-gateway']],
+                                [image: 'auth-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/auth-service']],
+                                [image: 'user-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/user-service']],
+                                [image: 'recipe-service',       dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/recipe-service']],
+                                [image: 'media-service',        dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/media-service']],
+                                [image: 'notification-service', dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/notification-service']],
+                                // The SPA bakes the API endpoint in at build time: without
+                                // it vite.config.ts fails (web-shell spec). The value is
+                                // the pipeline environment one, which equals the local
+                                // script's default (design D3).
+                                [image: 'web-frontend',         dockerfile: 'web-frontend.Dockerfile',   buildArgs: [VITE_API_BASE_URL: env.VITE_API_BASE_URL]],
+                            ].each { entry ->
+                                buildImage.call(entry + [sha: sha])
+                            }
+
+                            // Both references of every archive must resolve to the same
+                            // manifest (task 6.2). The single --output of D3 is designed
+                            // to make them inseparable; this turns that into a checked
+                            // property, so a divergent pair fails the build here instead
+                            // of shipping two tags of different images.
+                            sh "./scripts/ci-verify-oci-refs.sh --sha '${sha}' /out/*.tar"
+
+                            // Same Dockerfiles, same build args and the same revision
+                            // label as the local scripts/build-images.sh path, checked
+                            // on the archives just built (task 6.3). The gate passes the
+                            // seven archives; --local is the host spot check that
+                            // compares an archive against the local image of the commit.
+                            sh "./scripts/ci-verify-build-parity.sh --sha '${sha}' /out/*.tar"
+                        }
                     }
-
-                    // Both references of every archive must resolve to the same
-                    // manifest (task 6.2). The single --output of D3 is designed
-                    // to make them inseparable; this turns that into a checked
-                    // property, so a divergent pair fails the build here instead
-                    // of shipping two tags of different images.
-                    sh "./scripts/ci-verify-oci-refs.sh --sha '${sha}' /out/*.tar"
-
-                    // Same Dockerfiles, same build args and the same revision
-                    // label as the local scripts/build-images.sh path, checked
-                    // on the archives just built (task 6.3). The gate passes the
-                    // seven archives; --local is the host spot check that
-                    // compares an archive against the local image of the commit.
-                    sh "./scripts/ci-verify-build-parity.sh --sha '${sha}' /out/*.tar"
                 }
             }
         }
-        // Syft reads the OCI archive the Images stage wrote, so the inventory
-        // needs neither a daemon nor a second export (design D4, task 7.1). The
-        // archives themselves are the list: an image that was not built cannot
-        // get an SBOM, and the matrix is not repeated here. /out is emptied at
-        // the start of Images, so no archive from a previous build can slip in.
-        // Output goes to the workspace `sbom/` directory, which is the glob the
-        // always-post archives (ciArchiveReports.groovy, design D10).
-        stage('SBOM') {
-            steps {
-                // --source-name and --source-version fill the CycloneDX
-                // metadata component: on its own, Syft names an archive by its
-                // path, and the spec requires each SBOM to identify its image
-                // and the commit that produced it. The short sha is derived as
-                // in the Images stage, so it matches the archive's tag.
-                sh '''
-                    rm -rf sbom
-                    mkdir -p sbom
-                    set -- /out/*.tar
-                    if [ ! -f "$1" ]; then
-                        echo 'SBOM: no OCI archive under /out; the Images stage has to run first' >&2
-                        exit 1
-                    fi
-                    sha="$(git rev-parse --short HEAD)"
-                    for archive in "$@"; do
-                        image="${archive##*/}"
-                        image="${image%.tar}"
-                        echo "SBOM: ${image} at ${sha}"
-                        syft --quiet --from oci-archive "$archive" \
-                          --source-name "domincipe/${image}" \
-                          --source-version "$sha" \
-                          -o "cyclonedx-json=sbom/${image}.cdx.json"
-                    done
-                '''
-            }
-        }
-        // Trivy 0.76.2 reads a `docker save` tarball or an OCI layout on disk,
-        // never an OCI archive (design D4: it fails with `stat …/index.json:
-        // not a directory`), so each .tar is extracted once and the directory is
-        // the scan input — no second export and no daemon. The layout shares the
-        // fate of the archive it came from: the next Images run empties /out.
-        //
-        // The stage scans every archive before failing, because the report of a
-        // red build is what diagnoses it (design D10). A finding listed in the
-        // versioned ignore file does not fail the build; Trivy omits it from the
-        // report, and the identifier with its justification and expiry lives in
-        // that file, which is the versioned record of the exception (design D4,
-        // D9; --show-suppressed is not used because on 0.76.2 it restores the
-        // findings suppressed by status or VEX, not those of --ignorefile). The
-        // severity and exit code are the gate of D9: relaxing them needs a spec
-        // change, never a pipeline parameter.
-        stage('Scan') {
-            steps {
-                sh '''
-                    rm -rf security
-                    mkdir -p security
-                    set -- /out/*.tar
-                    if [ ! -f "$1" ]; then
-                        echo 'Scan: no OCI archive under /out; the Images stage has to run first' >&2
-                        exit 1
-                    fi
-                    failed=''
-                    for archive in "$@"; do
-                        image="${archive##*/}"
-                        image="${image%.tar}"
-                        echo "Scan: ${image}"
-                        mkdir -p "/out/${image}"
-                        tar -xf "$archive" -C "/out/${image}"
-                        if trivy image --input "/out/${image}" \
-                          --ignorefile "${WORKSPACE}/ops/jenkins/.trivyignore" \
-                          --severity HIGH,CRITICAL --exit-code 1 \
-                          --format json --output "security/${image}.json"; then
-                            echo "Scan: ${image} passed the HIGH/CRITICAL gate"
-                        else
-                            echo "Scan: ${image} failed the HIGH/CRITICAL gate; see security/${image}.json" >&2
-                            failed="${failed} ${image}"
-                        fi
-                    done
-                    if [ -n "${failed}" ]; then
-                        echo "Scan: HIGH/CRITICAL findings in${failed}" >&2
-                        exit 1
-                    fi
-                '''
+
+        // Second group (change ci-integration, design D3): everything here consumes what the
+        // first group produced —the archives of Images, or the environment they are loaded
+        // into— and the three branches touch different resources, so they run together.
+        stage('Verification') {
+            failFast true
+            parallel {
+                // Integration, e2e and the environment battery (change ci-integration). The
+                // environment is a Compose project of its own, raised inside the dind container
+                // and publishing no port, so it neither collides with the development
+                // environment nor with the Jenkins port.
+                stage('E2E') {
+                    steps {
+                        sh '''
+                            set -eu
+                            # Same evidence as Backend (task 5.1), plus the browser reference this
+                            # stage names when it creates the runner by hand: three values that are
+                            # not secrets and that the log has to show rather than imply.
+                            echo "E2E: DOCKER_HOST=${DOCKER_HOST} TESTCONTAINERS_HOST_OVERRIDE=${TESTCONTAINERS_HOST_OVERRIDE} PLAYWRIGHT_IMAGE=${PLAYWRIGHT_IMAGE}"
+                            # The battery scripts read COMPOSE_FILE exactly like the canonical
+                            # `up --wait`, so pointing it at base + ci makes them inspect this
+                            # project and no other (the project name comes from the ci file).
+                            export COMPOSE_FILE=ops/compose/docker-compose.base.yml:ops/compose/docker-compose.ci.yml
+                            # The short sha the Images stage tagged the archives with, computed the
+                            # same way it does, so the tag below names an image that exists:
+                            # APP_IMAGE_TAG is what the base file interpolates into every image
+                            # reference, and `docker load` restores exactly those two tags.
+                            sha="$(git rev-parse --short HEAD)"
+                            export APP_IMAGE_TAG="${sha}"
+
+                            echo 'E2E: recreating the test project from zero'
+                            docker compose --profile e2e --profile battery down -v --remove-orphans || true
+
+                            # The images the Images stage certified, not a rebuild: what the smoke
+                            # runs has to be exactly what passed the parity check (design D5).
+                            for archive in /out/*.tar; do
+                                if [ ! -f "${archive}" ]; then
+                                    echo 'E2E: no OCI archive under /out; the Images stage has to run first' >&2
+                                    exit 1
+                                fi
+                                docker load -i "${archive}"
+                            done
+
+                            echo "E2E: starting the environment as ${APP_IMAGE_TAG}"
+                            # No profile here, and that is the point: the two one-shot helpers the
+                            # overlay declares are not part of the environment. The playwright
+                            # runner is started by this stage below, and battery-client is created
+                            # on demand by `compose run --no-deps` inside verify-shutdown.sh.
+                            # `up --wait` also watches the services it started, so raising the
+                            # runner with its profile makes the run end in `exited (0)` and fail
+                            # the stage before a single check -- build #4 of PR #10 did exactly
+                            # that. The profiles stay in `logs` and `down` below, whose job is to
+                            # include whatever is there.
+                            docker compose up --wait --wait-timeout 600
+
+                            echo 'E2E: verifying the provisioned data'
+                            ./scripts/verify-environment.sh
+
+                            echo 'E2E: verifying the ordered shutdown of api-gateway'
+                            ./scripts/verify-shutdown.sh --client-service=battery-client
+
+                            # The workspace lives on the controller and the daemon is remote, so a
+                            # bind mount would be resolved over there and find nothing: the test
+                            # sources travel as an archive copied into the container.
+                            network="$(docker network ls \
+                                --filter label=com.docker.compose.project=domincipe-ci-e2e \
+                                --filter label=com.docker.compose.network=frontend-net \
+                                --format '{{.Name}}')"
+                            if [ -z "${network}" ]; then
+                                echo 'E2E: the frontend network of the project was not found' >&2
+                                exit 1
+                            fi
+                            rm -rf e2e-artifacts
+                            mkdir -p e2e-artifacts
+                            tar -cf /tmp/e2e-source.tar -C apps/web-frontend \
+                                package.json package-lock.json playwright.config.ts e2e
+
+                            echo 'E2E: running the browser smoke'
+                            runner="$(docker create --name domincipe-e2e-runner --network "${network}" \
+                                -e E2E_BASE_URL=http://web-frontend:8080 \
+                                -e E2E_GATEWAY_URL=http://api-gateway:8080 \
+                                "${PLAYWRIGHT_IMAGE}" \
+                                sh -lc 'set -e; mkdir -p /tmp/work && cd /tmp/work; tar -xf /tmp/e2e-source.tar; npm ci --no-audit --no-fund >/dev/null; npx playwright test')"
+                            docker cp /tmp/e2e-source.tar "${runner}":/tmp/e2e-source.tar
+                            status=0
+                            docker start -a "${runner}" || status=$?
+                            # Evidence even when the smoke passes: the junit report is what the
+                            # pipeline publishes, and the traces only exist on failure.
+                            docker cp "${runner}":/tmp/work/e2e/junit-results.xml e2e-artifacts/ 2>/dev/null || true
+                            docker cp "${runner}":/tmp/work/e2e/test-results e2e-artifacts/ 2>/dev/null || true
+                            docker rm -f "${runner}" >/dev/null 2>&1 || true
+
+                            # Logs before the project disappears, so a red build can say why a
+                            # container never became healthy.
+                            docker compose --profile e2e --profile battery logs --no-color \
+                                > e2e-artifacts/compose.log 2>&1 || true
+                            docker compose --profile e2e --profile battery down -v --remove-orphans || true
+
+                            if [ "${status}" -ne 0 ]; then
+                                echo "E2E: the browser smoke failed (exit ${status}); see the archived traces" >&2
+                                exit "${status}"
+                            fi
+                        '''
+                    }
+                }
+                // Syft reads the OCI archive the Images stage wrote, so the inventory
+                // needs neither a daemon nor a second export (design D4, task 7.1). The
+                // archives themselves are the list: an image that was not built cannot
+                // get an SBOM, and the matrix is not repeated here. /out is emptied at
+                // the start of Images, so no archive from a previous build can slip in.
+                // Output goes to the workspace `sbom/` directory, which is the glob the
+                // always-post archives (ciArchiveReports.groovy, design D10).
+                stage('SBOM') {
+                    steps {
+                        // --source-name and --source-version fill the CycloneDX
+                        // metadata component: on its own, Syft names an archive by its
+                        // path, and the spec requires each SBOM to identify its image
+                        // and the commit that produced it. The short sha is derived as
+                        // in the Images stage, so it matches the archive's tag.
+                        sh '''
+                            rm -rf sbom
+                            mkdir -p sbom
+                            set -- /out/*.tar
+                            if [ ! -f "$1" ]; then
+                                echo 'SBOM: no OCI archive under /out; the Images stage has to run first' >&2
+                                exit 1
+                            fi
+                            sha="$(git rev-parse --short HEAD)"
+                            for archive in "$@"; do
+                                image="${archive##*/}"
+                                image="${image%.tar}"
+                                echo "SBOM: ${image} at ${sha}"
+                                syft --quiet --from oci-archive "$archive" \
+                                  --source-name "domincipe/${image}" \
+                                  --source-version "$sha" \
+                                  -o "cyclonedx-json=sbom/${image}.cdx.json"
+                            done
+                        '''
+                    }
+                }
+                // Trivy 0.76.2 reads a `docker save` tarball or an OCI layout on disk,
+                // never an OCI archive (design D4: it fails with `stat …/index.json:
+                // not a directory`), so each .tar is extracted once and the directory is
+                // the scan input — no second export and no daemon. The layout shares the
+                // fate of the archive it came from: the next Images run empties /out.
+                //
+                // The stage scans every archive before failing, because the report of a
+                // red build is what diagnoses it (design D10). A finding listed in the
+                // versioned ignore file does not fail the build; Trivy omits it from the
+                // report, and the identifier with its justification and expiry lives in
+                // that file, which is the versioned record of the exception (design D4,
+                // D9; --show-suppressed is not used because on 0.76.2 it restores the
+                // findings suppressed by status or VEX, not those of --ignorefile). The
+                // severity and exit code are the gate of D9: relaxing them needs a spec
+                // change, never a pipeline parameter.
+                stage('Scan') {
+                    steps {
+                        sh '''
+                            rm -rf security
+                            mkdir -p security
+                            set -- /out/*.tar
+                            if [ ! -f "$1" ]; then
+                                echo 'Scan: no OCI archive under /out; the Images stage has to run first' >&2
+                                exit 1
+                            fi
+                            failed=''
+                            for archive in "$@"; do
+                                image="${archive##*/}"
+                                image="${image%.tar}"
+                                echo "Scan: ${image}"
+                                mkdir -p "/out/${image}"
+                                tar -xf "$archive" -C "/out/${image}"
+                                if trivy image --input "/out/${image}" \
+                                  --ignorefile "${WORKSPACE}/ops/jenkins/.trivyignore" \
+                                  --severity HIGH,CRITICAL --exit-code 1 \
+                                  --format json --output "security/${image}.json"; then
+                                    echo "Scan: ${image} passed the HIGH/CRITICAL gate"
+                                else
+                                    # Trivy writes its report only when it finishes, so an
+                                    # interrupted scan (the failFast of this group) leaves no
+                                    # file: calling that a finding would blame the image for the
+                                    # build having been stopped (design D10).
+                                    if [ -s "security/${image}.json" ]; then
+                                        echo "Scan: ${image} failed the HIGH/CRITICAL gate; see security/${image}.json" >&2
+                                    else
+                                        echo "Scan: ${image} did not finish and wrote no report; see the log above" >&2
+                                    fi
+                                    failed="${failed} ${image}"
+                                fi
+                            done
+                            if [ -n "${failed}" ]; then
+                                echo "Scan: the gate did not pass for${failed}; see the per-image lines above" >&2
+                                exit 1
+                            fi
+                        '''
+                    }
+                }
             }
         }
     }

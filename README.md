@@ -122,11 +122,33 @@ scripts/verify-shutdown.sh      # apagado ordenado con una petición en curso (r
 scripts/verify-version.sh       # versión del árbol contra el último tag y contra los servicios en marcha
 ```
 
+### Integration y e2e en local
+
+Los dos niveles que antes solo corrían en el ciclo de release ahora viven en el árbol:
+
+```bash
+./mvnw -B -ntp verify                       # unit + slice + integration (Testcontainers) + gate JaCoCo
+cd apps/web-frontend && npm run test:e2e     # smoke de Playwright contra el entorno en marcha
+```
+
+`./mvnw verify` necesita un daemon Docker accesible: usa el del host, como la batería de release. Los `*IT.java` arrancan PostgreSQL 16 y Kafka 4 sobre él, con las imágenes fijadas de [PROJECT.md §4](./PROJECT.md).
+
+El smoke de Playwright **no** descarga navegadores en el host: apunta por defecto a `http://localhost:8086` y a `http://localhost:8080` (los puertos que publica `docker-compose.dev.yml`) y, en el gate, corre dentro de la imagen oficial de Playwright contra el proyecto e2e. Se puede apuntar a otro sitio con `E2E_BASE_URL` y `E2E_GATEWAY_URL`.
+
+El proyecto de pruebas del CI es `ops/compose/docker-compose.base.yml` + `ops/compose/docker-compose.ci.yml`, con nombre propio y sin publicar puertos:
+
+```bash
+docker compose -f ops/compose/docker-compose.base.yml -f ops/compose/docker-compose.ci.yml up --wait
+./scripts/verify-environment.sh
+./scripts/verify-shutdown.sh
+docker compose -f ops/compose/docker-compose.base.yml -f ops/compose/docker-compose.ci.yml down -v
+```
+
 ---
 
 ## Integración continua
 
-El CI es un stack local reproducible en `ops/jenkins/`: un controlador Jenkins con la toolchain fijada (Temurin, Maven, Node.js, `buildctl`, Syft y Trivy) y un `buildkitd` rootless que construye las imágenes sin daemon. El contrato completo —pipeline, SBOM y escaneo— vive en el change `ci-pipeline` (`openspec/changes/ci-pipeline/`).
+El CI es un stack local reproducible en `ops/jenkins/`: un controlador Jenkins con la toolchain fijada (Temurin, Maven, Node.js, `buildctl`, Syft, Trivy y el cliente Docker con su plugin Compose), un `buildkitd` rootless que construye las imágenes sin daemon y un contenedor `dind` que es el daemon de test de los niveles con Docker. El contrato completo —pipeline, SBOM, escaneo, integration, e2e y batería de entorno— vive en los changes `ci-pipeline` y `ci-integration` (`openspec/changes/`).
 
 ### Requisitos del host para el builder rootless
 
@@ -158,6 +180,9 @@ Comprueba, en orden:
 - Una entrada para el usuario actual en `/etc/subuid` y en `/etc/subgid`, por nombre o por UID/GID.
 - `/dev/fuse` presente y accesible. Solo es obligatorio si el kernel es anterior a 5.11; por encima, su ausencia queda como aviso.
 - El puerto de Jenkins libre. Lo resuelve con la precedencia de Compose —entorno, después `ops/jenkins/.env` y, si no hay ninguno, el `8095` del compose—, y si quien lo ocupa es este mismo stack ya levantado no lo trata como conflicto.
+- Que el daemon de Docker pueda ejecutar un contenedor privilegiado (un daemon en modo *rootless* no sirve para `dind`).
+- Espacio libre donde Docker guarda sus volúmenes, para el daemon de test. El mínimo son 20 G y se ajusta con `DIND_MIN_FREE_GB`.
+- Que el puerto 2375 no esté publicado por otro contenedor del host: el daemon de test vive solo en `ci-net`.
 
 Termina con código 0 cuando el host está listo, 1 cuando falta un requisito y 2 ante un uso incorrecto; debe salir 0 antes de `up`.
 

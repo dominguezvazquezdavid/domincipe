@@ -44,12 +44,15 @@ Usage: scripts/ci-preflight.sh
 Checks, on the host, the requirements of the rootless BuildKit builder: docker
 compose, kernel >= 5.11 (a warning otherwise: the builder falls back to
 fuse-overlayfs), user namespaces, the AppArmor user-namespace restriction,
-/etc/subuid and /etc/subgid, /dev/fuse and a free Jenkins port.
+/etc/subuid and /etc/subgid, /dev/fuse, a free Jenkins port, a Docker daemon able
+to run a privileged container, free space for the test daemon and port 2375
+unpublished.
 
 Read-only. Run it before
 `docker compose -f ops/jenkins/docker-compose.yml up --wait`.
 
-Environment: JENKINS_PORT (shell environment, then ops/jenkins/.env, then 8095).
+Environment: JENKINS_PORT (shell environment, then ops/jenkins/.env, then 8095)
+and DIND_MIN_FREE_GB (minimum free gigabytes for the test daemon, 20 by default).
 
 Exit codes: 0 when every requirement holds, 1 when one fails, 2 on a usage error.
 USAGE
@@ -225,6 +228,49 @@ check_jenkins_port() {
 [[ -r "${compose_file}" ]] \
   || fail "${compose_file} not found: this script runs from a clone of the repository"
 
+# The test daemon of the stack (change ci-integration, design D8). Its container is
+# privileged, and this is where that becomes a host requirement instead of a surprise
+# inside `up --wait`.
+check_daemon_privileges() {
+  local options
+  options="$(docker info --format '{{json .SecurityOptions}}' 2>/dev/null)" \
+    || fail "cannot query the Docker daemon: start it (systemctl start docker) or check DOCKER_HOST"
+  # A rootless daemon cannot grant a container the device and cgroup access Docker-in-Docker
+  # needs: `--privileged` is accepted and then quietly under-delivers, so the dind container
+  # never becomes usable. Read-only proxy for "this host can run a privileged container".
+  if [[ "${options}" == *rootless* ]]; then
+    fail "the Docker daemon runs in rootless mode, which cannot host the privileged dind container the test levels need: use a root daemon for the CI stack (PROJECT.md §9)"
+  fi
+  printf 'ci-preflight: OK the Docker daemon can run a privileged container\n'
+}
+
+check_dind_space() {
+  local available_gb minimum_gb="${DIND_MIN_FREE_GB:-20}"
+  [[ "${minimum_gb}" =~ ^[0-9]+$ ]] \
+    || fail "DIND_MIN_FREE_GB '${minimum_gb}' is not a number of gigabytes"
+  # The space is measured where the daemon stores its volumes, which is where the dind image
+  # layers and the containers of the test project land.
+  available_gb="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null \
+    | xargs -r df -BG --output=avail 2>/dev/null | tail -n 1 | tr -dc '0-9')"
+  [[ -n "${available_gb}" ]] \
+    || warn "cannot read the free space of the Docker root directory; skipping the dind space check"
+  if ((available_gb < minimum_gb)); then
+    fail "only ${available_gb}G free where Docker stores its volumes and the test daemon needs ${minimum_gb}G: run 'docker system prune -af --volumes' or lower DIND_MIN_FREE_GB"
+  fi
+  printf 'ci-preflight: OK %sG free for the test daemon (minimum %sG)\n' "${available_gb}" "${minimum_gb}"
+}
+
+check_dind_port() {
+  local published
+  # The daemon listens on 2375 inside ci-net and must stay there (design D1). A container of
+  # this host already publishing it would both expose it and make the stack ambiguous.
+  published="$(docker ps --quiet --filter 'publish=2375' 2>/dev/null | wc -l)"
+  if ((published > 0)); then
+    fail "port 2375 is already published by ${published} container(s) of this host: the test daemon must not publish it (change ci-integration, design D1)"
+  fi
+  printf 'ci-preflight: OK port 2375 is not published on the host\n'
+}
+
 jenkins_port="$(resolve_jenkins_port)"
 
 check_docker_compose
@@ -234,5 +280,8 @@ check_apparmor_userns
 check_subordinate_ids
 check_fuse
 check_jenkins_port "${jenkins_port}"
+check_daemon_privileges
+check_dind_space
+check_dind_port
 
 echo "ci-preflight: OK (host ready for the CI stack)"

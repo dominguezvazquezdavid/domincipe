@@ -9,10 +9,16 @@
 # cannot keep.
 #
 # Requested directly: configuration-as-code, credentials-binding, git,
-# github-branch-source, jacoco, job-dsl, junit and workflow-aggregator.
+# github-branch-source, jacoco, job-dsl, junit, timestamper and
+# workflow-aggregator.
 # `job-dsl` is not optional: JCasC's `items` root element has no
 # ItemConfigurator for multibranch projects, so the multibranch job of 4.1 and
 # 5.1 is declared through the Job DSL extension (`jobs:` in casc/jenkins.yaml).
+# `timestamper` is what makes `options { timestamps() }` valid in the Jenkinsfile
+# (task 5.2): without the plugin the Declarative option does not exist and the
+# build dies parsing the pipeline. Its four requirements —antisamy-markup-formatter,
+# commons-lang3-api, workflow-api and workflow-step-api— are already in the
+# closure below at or above the versions 1.30 asks for, so it adds one line.
 # Raise a version here only; nothing else installs plugins.
 #
 # Format accepted by `jenkins-plugin-cli --plugin-file`: <name>:<version>
@@ -80,6 +86,7 @@ snakeyaml-api:2.7-152.vc672728cf536
 snakeyaml-engine-api:3.2-18.v885ed7ff698f
 ssh-credentials:372.va_250881b_08cd
 structs:362.va_b_695ef4fdf9
+timestamper:1.30
 token-macro:477.vd4f0dc3cb_cf1
 variant:70.va_d9f17f859e0
 woodstox-core-api:7.3.0-16.v017f30ed004c

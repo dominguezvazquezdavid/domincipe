@@ -26,7 +26,7 @@
 
     <groupId>com.domincipe</groupId>
     <artifactId>domincipe-parent</artifactId>
-    <version>0.2.1-SNAPSHOT</version>
+    <version>0.3.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Domincipe</name>
@@ -81,6 +81,14 @@
         -->
         <jacoco.line.minimum>0.80</jacoco.line.minimum>
         <jacoco.branch.minimum>0.70</jacoco.branch.minimum>
+        <!--
+          HTTP client of the backend end-to-end test (PROJECT.md §8, change ci-integration).
+          spring-boot-dependencies 4.1.2 does not manage io.rest-assured (verified: no
+          rest-assured entry in its POM), so the version is pinned here instead of being left
+          to whatever Maven resolves. 6.3.0 is the newest stable release: 7.0.0-RC1 is a
+          release candidate and stays out.
+        -->
+        <rest-assured.version>6.3.0</rest-assured.version>
     </properties>
 
     <dependencyManagement>
@@ -95,6 +103,15 @@
                 <version>${springdoc.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!--
+              HTTP client of the backend end-to-end test. Boot does not manage it, so the
+              version pinned in the properties above is the only source of truth.
+            -->
+            <dependency>
+                <groupId>io.rest-assured</groupId>
+                <artifactId>rest-assured</artifactId>
+                <version>${rest-assured.version}</version>
             </dependency>
             <!-- Internal modules: a single version, the parent's, for all eight artifacts. -->
             <dependency>
@@ -166,6 +183,16 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
+                    <configuration>
+                        <!--
+                          Failsafe reads a plain `argLine` by default, and that property is the
+                          one jacoco:prepare-agent fills for Surefire. Pointing it at the agent
+                          jacoco:prepare-agent-integration fills (decision D6) keeps the two
+                          levels apart: the IT coverage lands in jacoco-it.exec, never in the
+                          jacoco.exec that the 80/70 gate measures.
+                        -->
+                        <argLine>${failsafeArgLine}</argLine>
+                    </configuration>
                 </plugin>
 
                 <!--
@@ -202,6 +229,52 @@
                             <goals>
                                 <goal>prepare-agent</goal>
                             </goals>
+                        </execution>
+                        <!--
+                          The integration level gets its own agent, its own data file
+                          (target/jacoco-it.exec) and its own report (target/site/jacoco-it):
+                          nothing here feeds jacoco:check, so the 80/70 gate keeps measuring
+                          unit and slice only (decision D6 of the ci-integration change). The
+                          two goals come with those defaults, so they are declared and not
+                          configured: a module that passes the gate on the strength of its
+                          integration tests would be measuring something §8 does not ask for.
+                        -->
+                        <execution>
+                            <id>prepare-agent-integration</id>
+                            <goals>
+                                <goal>prepare-agent-integration</goal>
+                            </goals>
+                            <configuration>
+                                <!--
+                                  Explicit on purpose: in 0.8.16 the goal ships no default for
+                                  propertyName (verified in the plugin descriptor and in
+                                  AgentITMojo), so without this line it would write the *same*
+                                  `argLine` Surefire consumed, the ITs would run without an agent
+                                  and the report below would find no data. Named after the
+                                  property maven-failsafe-plugin reads, the two levels stay
+                                  apart.
+                                -->
+                                <propertyName>failsafeArgLine</propertyName>
+                                <destFile>${project.build.directory}/jacoco-it.exec</destFile>
+                            </configuration>
+                        </execution>
+                        <execution>
+                            <id>report-integration</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>report-integration</goal>
+                            </goals>
+                            <configuration>
+                                <!-- Same file the agent above writes: the default of the goal is
+                                     the convention, and naming it keeps the pair explicit. -->
+                                <dataFile>${project.build.directory}/jacoco-it.exec</dataFile>
+                                <outputDirectory>${project.build.directory}/site/jacoco-it</outputDirectory>
+                                <excludes>
+                                    <exclude>**/*Application.class</exclude>
+                                    <exclude>**/dto/**</exclude>
+                                    <exclude>**/*Impl.class</exclude>
+                                </excludes>
+                            </configuration>
                         </execution>
                         <execution>
                             <id>report</id>

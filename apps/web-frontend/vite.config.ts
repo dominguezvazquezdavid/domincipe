@@ -2,7 +2,7 @@ import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { loadEnv } from 'vite'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 const API_BASE_URL_VARIABLE = 'VITE_API_BASE_URL'
 
@@ -36,6 +36,9 @@ export default defineConfig(({ mode }) => {
     test: {
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.ts'],
+      // e2e/ belongs to Playwright, not to Vitest (change ci-integration, design D7): those
+      // specs import @playwright/test and would fail here with no browser to drive.
+      exclude: [...configDefaults.exclude, 'e2e/**'],
       coverage: {
         provider: 'v8',
         reporter: ['text', 'html'],

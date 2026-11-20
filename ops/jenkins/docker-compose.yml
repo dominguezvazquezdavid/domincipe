@@ -1,8 +1,14 @@
-# CI stack of the project (design D1, D2, D10, D11).
+# CI stack of the project (design D1, D2, D10, D11; change ci-integration).
 #
-# Two containers and a Unix socket, never a Docker daemon: `buildkitd` builds
-# the seven project images and `jenkins` drives it with `buildctl`. No container
-# here mounts /var/run/docker.sock and none runs as root.
+# Three containers and two daemons, each with one job:
+#   - buildkitd builds the seven project images, rootless and without a Docker daemon;
+#   - dind is the Docker daemon the integration, e2e and environment stages talk to;
+#   - jenkins drives both from the pinned toolchain and publishes the result.
+#
+# `dind` is the only privileged container of the stack and the only one that runs a Docker
+# daemon (change ci-integration, design D1). It is a test daemon: it never sees the host socket,
+# publishes no port and is reachable only from ci-net. The image build path still runs against
+# buildkitd, so a Docker daemon is never needed to build an image.
 #
 #   docker compose -f ops/jenkins/docker-compose.yml up --wait
 #
@@ -52,6 +58,47 @@ services:
     networks:
       - ci-net
 
+  # Docker daemon of the test levels (change ci-integration, design D1). The integration, e2e
+  # and environment stages talk to it at tcp://dind:2375; nothing on the host reaches it.
+  dind:
+    # Pinned by tag and index digest (PROJECT.md §4), like the builder.
+    image: ${DIND_IMAGE:-docker:29.10.0-dind@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c}
+    restart: unless-stopped
+    # The only privileged container of the stack, and the exception is deliberate: the official
+    # image documents --privileged as required for Docker-in-Docker to work at all
+    # (docker-library/docs, docker/content.md). It buys a daemon inside the stack instead of a
+    # socket of the developer's daemon; it never sees a build, because images still come from
+    # buildkitd, and it holds no credential.
+    privileged: true
+    environment:
+      # Empty disables the TLS the image sets up by default, which is what makes it listen on
+      # 2375 with no certificate ceremony. Safe only because the port stays inside ci-net: no
+      # `ports:` below, and the host cannot route to this network (design D1).
+      DOCKER_TLS_CERTDIR: ""
+    volumes:
+      # Daemon state (images loaded for the e2e stage, containers of the test project). Survives
+      # a restart of the container, not `down -v`, so a cold start stays reproducible.
+      - dind-data:/var/lib/docker
+    healthcheck:
+      # `docker info` is the API answering, not the process existing: the CLI inside this image
+      # talks to the daemon on the local socket, so a green probe means the daemon is usable.
+      test: ["CMD", "docker", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # First boot initialises /var/lib/docker; generous for a cold volume.
+      start_period: 30s
+    stop_grace_period: 20s
+    networks:
+      - ci-net
+    deploy:
+      resources:
+        limits:
+          # Explicit, like the rest of the stack: the e2e environment runs fifteen containers
+          # inside this one, and a runaway daemon must not starve buildkitd or Maven.
+          cpus: "2.0"
+          memory: 4G
+
   jenkins:
     # Built from ops/jenkins/Dockerfile: the pinned toolchain the stages use
     # travels with the controller (design D5). The default tag is this build:
@@ -65,6 +112,10 @@ services:
       buildkitd:
         # Starts only once the builder answers `debug workers`, never after a
         # fixed delay.
+        condition: service_healthy
+      dind:
+        # Same rule for the test daemon: the controller boots with it already answering, so the
+        # first build does not race the daemon it needs (change ci-integration, design D8).
         condition: service_healthy
     ports:
       # 8095 is free in the local environment: §9 already publishes 8080-8087,
@@ -135,3 +186,5 @@ volumes:
   buildkit-state:
   buildkit-cache:
   oci-out:
+  # Test daemon state (change ci-integration, design D1).
+  dind-data:
