@@ -25,12 +25,14 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '10', daysToKeepStr: '30'))
         // A time mark per console line (task 5.2). The two groups below interleave their output,
         // and without a mark per line the overlap is only readable as interleaving, never as
-        // time: `build.xml` keeps one <duration> for the whole build and nothing per branch.
+        // time: `build.xml` keeps one <duration> for the whole build and nothing per branch
+        // (checked in the sixth build of the PR: a single `511890`, no stage elements at all).
         // It is declared here, and not as the global setting of the timestamper plugin, because
-        // the decision belongs to this pipeline and is reviewed with it. The price is symmetric
-        // and worth writing down: a branch whose Jenkinsfile predates this line —develop, for
-        // the baseline of task 1.2— carries no marks, so that baseline is read from the
-        // per-stage <duration> of `build.xml`, which the sequential gate of that commit allows.
+        // the decision belongs to this pipeline and is reviewed with it. The consequence is
+        // written down because it costs something: a branch whose Jenkinsfile predates this
+        // line —develop, the baseline of task 1.2— carries no marks, and its per-stage times
+        // cannot be recovered from `build.xml`, so that baseline has to be measured on a run
+        // that does carry the option instead of inferred from the old one.
         timestamps()
     }
 
