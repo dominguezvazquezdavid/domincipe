@@ -13,7 +13,7 @@
     <parent>
         <groupId>com.domincipe</groupId>
         <artifactId>domincipe-parent</artifactId>
-        <version>0.2.1-SNAPSHOT</version>
+        <version>0.3.0-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -39,6 +39,31 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!--
+          Integration level (PROJECT.md §8): the containers the *IT.java files of the tree
+          need. spring-boot-dependencies imports testcontainers-bom 2.0.5, so no version is
+          written here and a Boot bump moves them together. The module is consumed in test
+          scope by every service, which is what puts these on the IT classpath without
+          leaking into a production artifact.
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <!-- JUnit 5 integration: @Testcontainers, @Container and the lifecycle of the
+                 static fields ContainerSupportBase declares. -->
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <!-- The 2.x module (org.testcontainers.postgresql), not the deprecated
+                 1.x compatibility class under org.testcontainers.containers. -->
+            <artifactId>testcontainers-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <!-- The 2.x module (org.testcontainers.kafka), built for the apache/kafka
+                 KRaft image of PROJECT.md §4: no ZooKeeper. -->
+            <artifactId>testcontainers-kafka</artifactId>
         </dependency>
     </dependencies>
 </project>

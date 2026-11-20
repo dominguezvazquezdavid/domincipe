@@ -1,14 +1,13 @@
-// Pull-request gate of the Domincipe monorepo (change ci-pipeline, task 5.1).
+// Pull-request gate of the Domincipe monorepo (changes ci-pipeline and ci-integration).
 //
-// Declarative pipeline: 5.1 landed the skeleton — the agent label of design D8,
-// the retention of D10, the stages in the order D9 fixes and the always-post
-// that archives —, 5.2 and 5.3 filled the quality stages, 5.4 runs them at the
-// same time, 6.1 builds the seven images, 6.2 verifies their references and 6.3
-// that the local and CI build paths share the same contract. 7.1 inventories
-// every archive with Syft and 7.2 gates them with Trivy. 8.1 publishes the
-// result as the commit status GitHub shows on the pull request.
-// Nothing here omits tests or lowers a threshold: those options are exactly
-// what PROJECT.md §8 forbids.
+// Declarative pipeline. ci-pipeline landed the skeleton —the agent label of design D8, the
+// retention of D10 and the always-post that archives—, the quality stages, the images, their
+// references, the build parity, the SBOM and the vulnerability scan. ci-integration added the
+// test daemon of the stack and, with it, the levels that need one: integration inside the
+// backend half, and the e2e plus the environment battery in the second group.
+//
+// Nothing here omits tests or lowers a threshold: those options are exactly what PROJECT.md §8
+// forbids, and the whole suite of the tree runs in one Maven invocation.
 //
 // The helpers under ops/jenkins/vars/ are loaded by path instead of being a
 // registered global library: a library is resolved from an SCM, and the commit
@@ -37,6 +36,19 @@ pipeline {
         // `debug workers` probe and ciBuildImage.groovy read this same variable,
         // so the address cannot drift between the two.
         BUILDKIT_HOST = 'unix:///run/user/1000/buildkit/buildkitd.sock'
+        // The test daemon of the stack (change ci-integration, design D1). It is reached over
+        // ci-net by service name, never through a socket: no container of the stack mounts the
+        // host's. Declared once here so the integration, e2e and environment stages cannot
+        // disagree about which daemon they are talking to.
+        DOCKER_HOST = 'tcp://dind:2375'
+        // Testcontainers publishes the ports of its containers on the daemon's host, which is
+        // the dind container and not the controller: without this override the client would call
+        // 127.0.0.1 and get a connection refused for every container (design D4).
+        TESTCONTAINERS_HOST_OVERRIDE = 'dind'
+        // The browser runner of the smoke: the official image of the pinned Playwright version,
+        // with Chromium and its libraries inside. The same value the overlay of the e2e project
+        // defaults to, declared here because the stage also creates the container by hand.
+        PLAYWRIGHT_IMAGE = 'mcr.microsoft.com/playwright:v1.65.0-noble@sha256:9beb546099e11f52d62e505537914870e01a67e0e6b00ae41da4775324e73dbe'
         // The GitHub repository the build result is published to, and the API
         // it is published through (task 8.1). It is the same repository the
         // branch source polls, so the status lands on the commit the build was
@@ -50,26 +62,26 @@ pipeline {
     }
 
     stages {
-        // Quality first, so a red test does not wait for the image stages
-        // (design D9). The two halves are independent — Maven and npm share
-        // nothing but the checkout — so they run at the same time (task 5.4):
-        // the gate lasts as long as the slower half instead of the sum.
-        // failFast marks the build red as soon as either half fails instead of
-        // waiting for its sibling; it aborts nothing that was going to change
-        // the verdict, and a green half is never reported as a pass for the
-        // build. A failure in either branch is a FAILURE of the build.
+        // First group (change ci-integration, design D3). The three branches are independent —
+        // Maven, npm and BuildKit share nothing but the checkout — so they run at the same time
+        // and the gate lasts as long as the slower one instead of the sum. failFast marks the
+        // build red as soon as one fails instead of waiting for its siblings; it aborts nothing
+        // that was going to change the verdict, and a green branch is never reported as a pass
+        // for the build. A failure in any branch is a FAILURE of the build.
         stage('Quality') {
             failFast true
             parallel {
-                // The scope guard goes before Maven: a *IT.java needs a Docker
-                // daemon the gate does not have, and it has to fail naming the
-                // file instead of dying inside Testcontainers (design D13,
-                // task 5.6). The surefire results and the per-module JaCoCo
-                // reports this stage writes are archived by the always-post of
-                // design D10.
+                // The daemon probe goes before Maven: the backend half now runs the integration
+                // level too, so a daemon that is not there would surface as a Testcontainers
+                // timeout much later and hide the cause. It fails naming the daemon and the
+                // command that starts it (change ci-integration, design D8), and it is not a
+                // gate parameter: the level it protects is mandatory.
                 stage('Backend') {
                     steps {
-                        sh './scripts/ci-suite-scope.sh'
+                        sh '''
+                            docker info --format 'DOCKER_HOST={{.DockerRootDir}} server={{.ServerVersion}}' \
+                              || { echo "backend: the test daemon at ${DOCKER_HOST} does not answer; start the CI stack with 'docker compose -f ops/jenkins/docker-compose.yml up --wait'" >&2; exit 1; }
+                        '''
                         // `clean` is the one difference from the chain §8 runs
                         // by hand, and the workspace is why: the one of a branch
                         // or PR job survives between builds, so the XML left in
@@ -81,6 +93,12 @@ pipeline {
                         // build still reported the deleted test as a failure —
                         // and the status, published before junit, called it a
                         // success while Jenkins was marking it UNSTABLE.
+                        //
+                        // One invocation for the whole suite, integration included:
+                        // failsafe is bound in every module, so `verify` runs the
+                        // *IT.java of the tree against the test daemon. Two Maven runs
+                        // (one for unit, one for ITs) would fight over target/, and
+                        // -DskipITs here is exactly what PROJECT.md §8 forbids.
                         sh './mvnw -B -ntp clean verify'
                     }
                 }
@@ -103,8 +121,12 @@ pipeline {
                     }
                 }
             }
-        }
-        stage('Images') {
+            // Images joins the first group (change ci-integration, design D3): it builds against
+            // buildkitd, not against the test daemon, and the build context excludes target/,
+            // node_modules/ and dist/ (.dockerignore), so it shares no file with Maven or npm.
+            // A stage that can run earlier without contending anything is time the gate does not
+            // spend twice.
+            stage('Images') {
             steps {
                 script {
                     // Artefacts in /out are per build — the OCI archives and,
@@ -164,7 +186,99 @@ pipeline {
                     sh "./scripts/ci-verify-build-parity.sh --sha '${sha}' /out/*.tar"
                 }
             }
+            }
         }
+
+        // Second group (change ci-integration, design D3): everything here consumes what the
+        // first group produced —the archives of Images, or the environment they are loaded
+        // into— and the three branches touch different resources, so they run together.
+        stage('Verification') {
+            failFast true
+            parallel {
+                // Integration, e2e and the environment battery (change ci-integration). The
+                // environment is a Compose project of its own, raised inside the dind container
+                // and publishing no port, so it neither collides with the development
+                // environment nor with the Jenkins port.
+                stage('E2E') {
+                    steps {
+                        sh '''
+                            set -eu
+                            # The battery scripts read COMPOSE_FILE exactly like the canonical
+                            # `up --wait`, so pointing it at base + ci makes them inspect this
+                            # project and no other (the project name comes from the ci file).
+                            export COMPOSE_FILE=ops/compose/docker-compose.base.yml:ops/compose/docker-compose.ci.yml
+                            # The same commit identifier ciGitSha hands to ciBuildImage, so the
+                            # tag below names an image that exists: APP_IMAGE_TAG is what the
+                            # base file interpolates into every image reference.
+                            sha="${GIT_COMMIT:-$(git rev-parse HEAD)}"
+                            export APP_IMAGE_TAG="${sha}"
+
+                            echo 'E2E: recreating the test project from zero'
+                            docker compose --profile e2e --profile battery down -v --remove-orphans || true
+
+                            # The images the Images stage certified, not a rebuild: what the smoke
+                            # runs has to be exactly what passed the parity check (design D5).
+                            for archive in /out/*.tar; do
+                                if [ ! -f "${archive}" ]; then
+                                    echo 'E2E: no OCI archive under /out; the Images stage has to run first' >&2
+                                    exit 1
+                                fi
+                                docker load -i "${archive}"
+                            done
+
+                            echo "E2E: starting the environment as ${APP_IMAGE_TAG}"
+                            docker compose --profile e2e --profile battery up --wait --wait-timeout 600
+
+                            echo 'E2E: verifying the provisioned data'
+                            ./scripts/verify-environment.sh
+
+                            echo 'E2E: verifying the ordered shutdown of api-gateway'
+                            ./scripts/verify-shutdown.sh --client-service=battery-client
+
+                            # The workspace lives on the controller and the daemon is remote, so a
+                            # bind mount would be resolved over there and find nothing: the test
+                            # sources travel as an archive copied into the container.
+                            network="$(docker network ls \
+                                --filter label=com.docker.compose.project=domincipe-ci-e2e \
+                                --filter label=com.docker.compose.network=frontend-net \
+                                --format '{{.Name}}')"
+                            if [ -z "${network}" ]; then
+                                echo 'E2E: the frontend network of the project was not found' >&2
+                                exit 1
+                            fi
+                            rm -rf e2e-artifacts
+                            mkdir -p e2e-artifacts
+                            tar -cf /tmp/e2e-source.tar -C apps/web-frontend \
+                                package.json package-lock.json playwright.config.ts e2e
+
+                            echo 'E2E: running the browser smoke'
+                            runner="$(docker create --name domincipe-e2e-runner --network "${network}" \
+                                -e E2E_BASE_URL=http://web-frontend:8080 \
+                                -e E2E_GATEWAY_URL=http://api-gateway:8080 \
+                                "${PLAYWRIGHT_IMAGE}" \
+                                sh -lc 'set -e; mkdir -p /tmp/work && cd /tmp/work; tar -xf /tmp/e2e-source.tar; npm ci --no-audit --no-fund >/dev/null; npx playwright test')"
+                            docker cp /tmp/e2e-source.tar "${runner}":/tmp/e2e-source.tar
+                            status=0
+                            docker start -a "${runner}" || status=$?
+                            # Evidence even when the smoke passes: the junit report is what the
+                            # pipeline publishes, and the traces only exist on failure.
+                            docker cp "${runner}":/tmp/work/e2e/junit-results.xml e2e-artifacts/ 2>/dev/null || true
+                            docker cp "${runner}":/tmp/work/e2e/test-results e2e-artifacts/ 2>/dev/null || true
+                            docker rm -f "${runner}" >/dev/null 2>&1 || true
+
+                            # Logs before the project disappears, so a red build can say why a
+                            # container never became healthy.
+                            docker compose --profile e2e --profile battery logs --no-color \
+                                > e2e-artifacts/compose.log 2>&1 || true
+                            docker compose --profile e2e --profile battery down -v --remove-orphans || true
+
+                            if [ "${status}" -ne 0 ]; then
+                                echo "E2E: the browser smoke failed (exit ${status}); see the archived traces" >&2
+                                exit "${status}"
+                            fi
+                        '''
+                    }
+                }
         // Syft reads the OCI archive the Images stage wrote, so the inventory
         // needs neither a daemon nor a second export (design D4, task 7.1). The
         // archives themselves are the list: an image that was not built cannot
@@ -247,6 +361,8 @@ pipeline {
                         exit 1
                     fi
                 '''
+            }
+        }
             }
         }
     }

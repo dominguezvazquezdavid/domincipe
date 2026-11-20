@@ -29,6 +29,9 @@ pnpm-debug.log*
 # --- Coverage and test artifacts ---
 coverage/
 lcov.info
+# Playwright writes its junit report outside outputDir on purpose, so
+# `test-results/` does not cover it (playwright.config.ts).
+junit-results.xml
 test-results/
 playwright-report/
 blob-report/

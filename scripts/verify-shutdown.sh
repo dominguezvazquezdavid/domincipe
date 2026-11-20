@@ -22,6 +22,11 @@
 # luck of the buffer sizes. The direct path is measured and stable on Linux;
 # Docker Desktop does not route to container IPs and is out of scope.
 #
+# When Compose talks to a remote daemon (the CI stack) those addresses exist over
+# there and not here, so --client-service moves both the reference request and
+# the slow client inside the project network instead of falling back to a
+# published port, which would measure something else (change ci-integration, D8).
+#
 # Exit code of the container: 0 or 143 (128 + SIGTERM) mean a healthy ordered
 # shutdown; 137 (128 + SIGKILL) means the grace period expired before the drain
 # finished and is a failure. The JVM exits with 143 after handling SIGTERM, so
@@ -55,7 +60,7 @@ stop_delay_seconds=1
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/verify-shutdown.sh [service]
+Usage: scripts/verify-shutdown.sh [--client-service=<name>] [service]
 
 Opens an HTTP request to a Java service of the running local environment, runs
 `docker compose stop` while the response is still being written and checks that
@@ -63,6 +68,12 @@ the request completes with the expected body and that the container exits
 through its normal shutdown path (0 or 143, never 137).
 
 service (default: api-gateway) must be a Java service serving springdoc.
+
+--client-service=<name> runs both the reference request and the slow client
+inside a Compose service of the project instead of on this host: required when
+Compose talks to a remote daemon (the CI stack), where the container addresses
+do not exist here. The named service needs python3 and a network in common with
+service, and `ops/compose/docker-compose.ci.yml` declares one for that purpose.
 
 The service is restarted at the end, so the environment is left as it was found.
 Start the environment first with `docker compose up --wait`.
@@ -96,11 +107,21 @@ now_ms() {
 
 service="api-gateway"
 positional=0
+client_service=""
 for argument in "$@"; do
   case "${argument}" in
     -h | --help)
       usage
       exit 0
+      ;;
+    # Name of a Compose service that carries python3 and lives on the project network. The
+    # client then runs inside that network instead of on the caller's host, which is what makes
+    # the check work when Compose talks to a remote daemon (the CI stack): the container
+    # addresses exist there, not here (change ci-integration, design D8).
+    --client-service=*)
+      client_service="${argument#--client-service=}"
+      [[ -n "${client_service}" ]] \
+        || { echo "verify-shutdown: --client-service needs a service name" >&2; usage >&2; exit 2; }
       ;;
     -*)
       echo "verify-shutdown: unexpected option '${argument}'" >&2
@@ -119,9 +140,13 @@ for argument in "$@"; do
   esac
 done
 
-for tool in docker curl python3; do
-  command -v "${tool}" >/dev/null 2>&1 || fail "${tool} not found in PATH"
-done
+command -v docker >/dev/null 2>&1 || fail "docker not found in PATH"
+if [[ -z "${client_service}" ]]; then
+  # Only needed by the local client: in client-service mode both tools run in the container.
+  for tool in curl python3; do
+    command -v "${tool}" >/dev/null 2>&1 || fail "${tool} not found in PATH"
+  done
+fi
 
 workdir="$(mktemp -d)"
 stopped=0
@@ -165,23 +190,62 @@ health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}
 
 # Container address on its Compose network: any of them is routable from the
 # host on Linux, and bypassing the published port keeps the userland proxy out
-# of the measurement.
-ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' \
-  "${container_id}" | head -n1)"
-[[ -n "${ip}" ]] \
-  || fail "cannot resolve the container IP of ${service}"
+# of the measurement. With --client-service the address is resolved inside the
+# network instead, so the IP is neither needed nor reachable.
+ip=""
+if [[ -z "${client_service}" ]]; then
+  ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' \
+    "${container_id}" | head -n1)"
+  [[ -n "${ip}" ]] \
+    || fail "cannot resolve the container IP of ${service}"
+fi
+
+# The address the client and the reference use: the container IP on the caller's
+# host, the service name inside the project network.
+target="${ip}"
+if [[ -n "${client_service}" ]]; then
+  target="${service}"
+fi
+
+# Both probes below run on the caller's host by default and inside the project
+# network when --client-service names a service, so the same script measures the
+# same thing whether Compose talks to the local daemon or to a remote one.
+fetch_reference() {
+  if [[ -n "${client_service}" ]]; then
+    compose run --rm -T --no-deps --entrypoint python3 "${client_service}" - "${target}" "${slow_path}" <<'PYTHON'
+import sys
+import urllib.request
+
+url = "http://%s:8080%s" % (sys.argv[1], sys.argv[2])
+with urllib.request.urlopen(url) as response:
+    body = response.read()
+    print(response.status, len(body))
+PYTHON
+  else
+    curl -fsS -o /dev/null -w '%{http_code} %{size_download}' "http://${target}:8080${slow_path}"
+  fi
+}
+
+run_slow_client() {
+  if [[ -n "${client_service}" ]]; then
+    compose run --rm -T --no-deps --entrypoint python3 "${client_service}" - \
+      "${target}" 8080 "${slow_path}" "${request_count}" "${hold_seconds}"
+  else
+    python3 "${workdir}/slow-client.py" "${target}" 8080 "${slow_path}" \
+      "${request_count}" "${hold_seconds}"
+  fi
+}
 
 # Reference response, fetched without tricks: every response read by the slow
 # client has to carry exactly this body.
-reference="$(curl -fsS -o /dev/null -w '%{http_code} %{size_download}' \
-  "http://${ip}:8080${slow_path}")" \
-  || fail "cannot fetch http://${ip}:8080${slow_path}; is ${service} serving springdoc (APP_DOCS_ENABLED=true)?"
+reference="$(fetch_reference)" \
+  || fail "cannot fetch http://${target}:8080${slow_path}; is ${service} serving springdoc (APP_DOCS_ENABLED=true)?"
 reference_status="${reference%% *}"
 expected_bytes="${reference##* }"
 [[ "${reference_status}" == "200" ]] \
-  || fail "http://${ip}:8080${slow_path} answered HTTP ${reference_status}; is ${service} serving springdoc (APP_DOCS_ENABLED=true)?"
+  || fail "http://${target}:8080${slow_path} answered HTTP ${reference_status}; is ${service} serving springdoc (APP_DOCS_ENABLED=true)?"
 [[ "${expected_bytes}" =~ ^[0-9]+$ ]] && (( expected_bytes > 0 )) \
-  || fail "the reference response from http://${ip}:8080${slow_path} is empty"
+  || fail "the reference response from http://${target}:8080${slow_path} is empty"
 
 
 # Client: pipelined requests over one connection with the receive buffer shrunk
@@ -242,7 +306,7 @@ finally:
 PYTHON
 
 client_started_ms="$(now_ms)"
-python3 "${workdir}/slow-client.py" "${ip}" 8080 "${slow_path}" "${request_count}" "${hold_seconds}" \
+run_slow_client \
   >"${workdir}/client.out" 2>"${workdir}/client.err" &
 client_pid=$!
 

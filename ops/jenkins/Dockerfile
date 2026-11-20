@@ -8,7 +8,8 @@
 #
 # Build context: ops/jenkins/, because the only file the image copies is
 # plugins.txt. The daemon that builds the project images is the separate
-# buildkitd container (design D2): nothing here needs a Docker daemon or socket.
+# buildkitd container (design D2): the Docker CLI installed below is the client
+# of the dind test daemon, never a builder and never a host socket.
 
 FROM jenkins/jenkins:2.580.2-lts-jdk21
 
@@ -18,6 +19,8 @@ ARG NODE_VERSION=22.23.5
 ARG BUILDKIT_VERSION=0.35.0
 ARG SYFT_VERSION=1.57.2
 ARG TRIVY_VERSION=0.76.2
+ARG DOCKER_CLI_VERSION=29.10.0
+ARG DOCKER_COMPOSE_VERSION=5.7.1
 
 # The -jdk21 tag already ships Temurin as JAVA_HOME (/opt/java/openjdk), and its
 # version is exactly the one the project pins, so the JDK is verified instead of
@@ -62,6 +65,26 @@ RUN curl -fsSL "https://github.com/anchore/syft/releases/download/v${SYFT_VERSIO
 RUN curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
       | tar -xz -C /usr/local/bin trivy \
     && trivy --version | grep -F "Version: ${TRIVY_VERSION}"
+
+# Docker client and Compose plugin (change ci-integration, design D2): the integration, e2e and
+# environment stages drive the dind container through DOCKER_HOST, so the controller needs the
+# client but never a daemon of its own. The image ships both versions asserted here, exactly like
+# the rest of the toolchain: a silent drift fails the build instead of surfacing as a pipeline
+# that speaks a different Compose syntax.
+RUN mkdir -p /tmp/docker \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_CLI_VERSION}.tgz" \
+      | tar -xz -C /tmp/docker \
+    && mv /tmp/docker/docker/docker /usr/local/bin/docker \
+    && rm -rf /tmp/docker \
+    && docker --version | grep -F "${DOCKER_CLI_VERSION}"
+# The plugin goes where the CLI looks for it without extra configuration
+# (~/.docker/cli-plugins or the system-wide path below), so `docker compose` resolves it for the
+# jenkins user with no DOCKER_CONFIG to maintain.
+RUN mkdir -p /usr/local/lib/docker/cli-plugins \
+    && curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" \
+      -o /usr/local/lib/docker/cli-plugins/docker-compose \
+    && chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose \
+    && docker compose version | grep -F "${DOCKER_COMPOSE_VERSION}"
 
 # Mount points of the named volumes declared in docker-compose.yml (design D2,
 # D3, D11): /cache, /out, /var/jenkins_home/.m2/repository and

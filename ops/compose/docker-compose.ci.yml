@@ -1,0 +1,56 @@
+# E2E overlay of the local environment for the CI stack (change ci-integration, design D5).
+#
+# It is layered on top of docker-compose.base.yml and never on top of docker-compose.dev.yml:
+# the test environment runs inside the `dind` container of ops/jenkins/docker-compose.yml, so it
+# publishes no port at all and needs neither the developer's published ports nor the
+# observability stack.
+#
+#   APP_IMAGE_TAG=<sha> docker compose \
+#     -f ops/compose/docker-compose.base.yml -f ops/compose/docker-compose.ci.yml up --wait
+#
+# The name is the one the two runner services below assume, and it is fixed here so the stages
+# never have to pass `-p` and cannot drift from it.
+name: domincipe-ci-e2e
+
+services:
+  # Browser runner of the frontend smoke test (design D7). It is the official image of the
+  # pinned Playwright version, so Chromium and its system libraries travel with it and nothing
+  # is downloaded during the gate. Both versions must match the @playwright/test devDependency:
+  # a mismatch makes the browser missing, and the stage names both when it happens.
+  #
+  # It carries a profile because `up --wait` must not start it: the stage runs it once the
+  # environment is healthy, with the tests copied into it (the workspace lives on the
+  # controller, and a bind mount would be resolved by the dind daemon, not by the controller).
+  playwright:
+    image: ${PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.65.0-noble@sha256:9beb546099e11f52d62e505537914870e01a67e0e6b00ae41da4775324e73dbe}
+    profiles:
+      - e2e
+    working_dir: /work
+    # Only frontend-net: web-frontend and api-gateway are both members, and the test has no
+    # business reaching postgres or kafka.
+    networks:
+      - frontend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+  # Client of scripts/verify-shutdown.sh (design D8). The script holds an HTTP request open and
+  # stops the service while it is being written, so the client has to reach the container by its
+  # address inside the project network; from the controller that address does not exist, because
+  # the containers live in the dind network namespace. A client inside the network keeps the
+  # measurement honest instead of replacing it with a published port, whose userland proxy
+  # buffers megabytes and hides the drain.
+  battery-client:
+    image: ${BATTERY_CLIENT_IMAGE:-python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e}
+    profiles:
+      - battery
+    command: ["sleep", "infinity"]
+    networks:
+      - backend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
