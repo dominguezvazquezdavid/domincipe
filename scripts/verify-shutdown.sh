@@ -55,7 +55,7 @@ slow_path="/swagger-ui/swagger-ui-bundle.js"
 request_count=3
 # Window during which the client does not read, in whole seconds.
 hold_seconds=4
-# Delay between launching the client and stopping the service, in whole seconds.
+# Delay between the requests being in flight and the stop, in whole seconds.
 stop_delay_seconds=1
 
 usage() {
@@ -228,8 +228,16 @@ PYTHON
 
 run_slow_client() {
   if [[ -n "${client_service}" ]]; then
+    # `python3 -` reads the program from standard input, and this function runs as
+    # a background job: an asynchronous list starts with /dev/null there, so
+    # without this redirection Python would run an empty program, exit at once and
+    # send nothing -- build #5 of PR #10 measured a stop with no request in flight
+    # for exactly that reason. The workspace is on the controller and the daemon is
+    # remote, so the file has to travel through stdin: a bind mount would be
+    # resolved in dind, where this path does not exist.
     compose run --rm -T --no-deps --entrypoint python3 "${client_service}" - \
-      "${target}" 8080 "${slow_path}" "${request_count}" "${hold_seconds}"
+      "${target}" 8080 "${slow_path}" "${request_count}" "${hold_seconds}" \
+      <"${workdir}/slow-client.py"
   else
     python3 "${workdir}/slow-client.py" "${target}" 8080 "${slow_path}" \
       "${request_count}" "${hold_seconds}"
@@ -275,8 +283,15 @@ try:
     sock.connect((host, port))
     request = f"GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n".encode()
     sock.sendall(request * count)
+    # Stamped right after the requests leave: the host waits for this line
+    # instead of assuming that launching the client was enough, because with a
+    # remote daemon the client is a container Compose has to create first.
+    print(f"sent {int(time.time() * 1000)}", flush=True)
     time.sleep(hold_seconds)
     sock.settimeout(60)
+    # The moment reading begins, stamped on the same kernel clock the host and
+    # every container share, so the two are comparable without a skew guess.
+    print(f"reading {int(time.time() * 1000)}", flush=True)
     stream = sock.makefile("rb")
     for index in range(count):
         status_line = stream.readline().strip()
@@ -305,10 +320,26 @@ finally:
     sock.close()
 PYTHON
 
-client_started_ms="$(now_ms)"
 run_slow_client \
   >"${workdir}/client.out" 2>"${workdir}/client.err" &
 client_pid=$!
+
+# The stop waits for the requests to be really in flight, not for the client to
+# be launched: with a remote daemon the client is a container Compose creates
+# first (measured: a few seconds in the CI stack), and a delay counted from the
+# launch stopped the service before the first byte was sent -- build #5 of
+# PR #10 failed exactly there. The client stamps the send, so it is observed.
+sent_ms=""
+for _ in $(seq 1 600); do
+  sent_ms="$(awk '$1 == "sent" { print $2; exit }' "${workdir}/client.out" 2>/dev/null || true)"
+  if [[ -n "${sent_ms}" ]]; then
+    break
+  fi
+  kill -0 "${client_pid}" 2>/dev/null || break
+  sleep 0.1
+done
+[[ -n "${sent_ms}" ]] \
+  || fail "the slow client never reported that it sent the requests: $(cat "${workdir}/client.err")"
 
 # The requests have to be in flight before SIGTERM and the buffers full: without
 # the delay the stop could arrive after the service finished answering.
@@ -332,11 +363,13 @@ if (( client_status != 0 )); then
   fail "the slow request failed with exit ${client_status}: $(cat "${workdir}/client.err")"
 fi
 
-# Here "in flight" stops being an assumption: the client sleeps hold_seconds
-# right after sending the requests, so it starts reading at that moment at the
-# earliest. A stop that finished before that had nothing to drain.
-client_release_ms=$(( client_started_ms + hold_seconds * 1000 ))
-(( stop_finished_ms >= client_release_ms )) \
+# Here "in flight" stops being an assumption: the client stamps the moment it
+# starts reading, and a stop that had already finished by then had nothing left
+# to drain.
+reading_ms="$(awk '$1 == "reading" { print $2; exit }' "${workdir}/client.out" 2>/dev/null || true)"
+[[ -n "${reading_ms}" ]] \
+  || fail "the slow client never reported that it started reading: $(cat "${workdir}/client.err")"
+(( stop_finished_ms >= reading_ms )) \
   || fail "docker compose stop finished in ${stop_ms} ms, before the client started reading: no request was in flight"
 
 responses=0
