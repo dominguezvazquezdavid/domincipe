@@ -127,65 +127,65 @@ pipeline {
             // A stage that can run earlier without contending anything is time the gate does not
             // spend twice.
             stage('Images') {
-            steps {
-                script {
-                    // Artefacts in /out are per build — the OCI archives and,
-                    // from task 7.2 on, the layouts extracted from them — so the
-                    // stage starts by emptying the volume instead of letting it
-                    // grow with every run (design D3, checked in task 6.5).
-                    sh 'find /out -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
+                steps {
+                    script {
+                        // Artefacts in /out are per build — the OCI archives and,
+                        // from task 7.2 on, the layouts extracted from them — so the
+                        // stage starts by emptying the volume instead of letting it
+                        // grow with every run (design D3, checked in task 6.5).
+                        sh 'find /out -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
 
-                    // Ask the daemon for its workers before building: an
-                    // unreachable socket fails here with the builder's own
-                    // message, not as a build that looks slow on a cold cache
-                    // (design D3, same probe as the compose healthcheck).
-                    sh 'buildctl debug workers'
+                        // Ask the daemon for its workers before building: an
+                        // unreachable socket fails here with the builder's own
+                        // message, not as a build that looks slow on a cold cache
+                        // (design D3, same probe as the compose healthcheck).
+                        sh 'buildctl debug workers'
 
-                    // Short SHA computed exactly as scripts/build-images.sh does
-                    // it. The immutable reference and the
-                    // org.opencontainers.image.revision label have to be the
-                    // same string in the local build and in the CI build of one
-                    // commit (design D3, checked in task 6.3).
-                    def sha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                        // Short SHA computed exactly as scripts/build-images.sh does
+                        // it. The immutable reference and the
+                        // org.opencontainers.image.revision label have to be the
+                        // same string in the local build and in the CI build of one
+                        // commit (design D3, checked in task 6.3).
+                        def sha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
-                    def buildImage = load('ops/jenkins/vars/ciBuildImage.groovy')
+                        def buildImage = load('ops/jenkins/vars/ciBuildImage.groovy')
 
-                    // Same Dockerfiles, build args and MODULE values as the
-                    // local script, so only the builder differs between the two
-                    // paths (design D3). One buildctl call per image writes one
-                    // OCI archive with the sha and the latest reference, which is
-                    // what makes them unable to drift apart.
-                    [
-                        [image: 'api-gateway',          dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/api-gateway']],
-                        [image: 'auth-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/auth-service']],
-                        [image: 'user-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/user-service']],
-                        [image: 'recipe-service',       dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/recipe-service']],
-                        [image: 'media-service',        dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/media-service']],
-                        [image: 'notification-service', dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/notification-service']],
-                        // The SPA bakes the API endpoint in at build time: without
-                        // it vite.config.ts fails (web-shell spec). The value is
-                        // the pipeline environment one, which equals the local
-                        // script's default (design D3).
-                        [image: 'web-frontend',         dockerfile: 'web-frontend.Dockerfile',   buildArgs: [VITE_API_BASE_URL: env.VITE_API_BASE_URL]],
-                    ].each { entry ->
-                        buildImage.call(entry + [sha: sha])
+                        // Same Dockerfiles, build args and MODULE values as the
+                        // local script, so only the builder differs between the two
+                        // paths (design D3). One buildctl call per image writes one
+                        // OCI archive with the sha and the latest reference, which is
+                        // what makes them unable to drift apart.
+                        [
+                            [image: 'api-gateway',          dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/api-gateway']],
+                            [image: 'auth-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/auth-service']],
+                            [image: 'user-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/user-service']],
+                            [image: 'recipe-service',       dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/recipe-service']],
+                            [image: 'media-service',        dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/media-service']],
+                            [image: 'notification-service', dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/notification-service']],
+                            // The SPA bakes the API endpoint in at build time: without
+                            // it vite.config.ts fails (web-shell spec). The value is
+                            // the pipeline environment one, which equals the local
+                            // script's default (design D3).
+                            [image: 'web-frontend',         dockerfile: 'web-frontend.Dockerfile',   buildArgs: [VITE_API_BASE_URL: env.VITE_API_BASE_URL]],
+                        ].each { entry ->
+                            buildImage.call(entry + [sha: sha])
+                        }
+
+                        // Both references of every archive must resolve to the same
+                        // manifest (task 6.2). The single --output of D3 is designed
+                        // to make them inseparable; this turns that into a checked
+                        // property, so a divergent pair fails the build here instead
+                        // of shipping two tags of different images.
+                        sh "./scripts/ci-verify-oci-refs.sh --sha '${sha}' /out/*.tar"
+
+                        // Same Dockerfiles, same build args and the same revision
+                        // label as the local scripts/build-images.sh path, checked
+                        // on the archives just built (task 6.3). The gate passes the
+                        // seven archives; --local is the host spot check that
+                        // compares an archive against the local image of the commit.
+                        sh "./scripts/ci-verify-build-parity.sh --sha '${sha}' /out/*.tar"
                     }
-
-                    // Both references of every archive must resolve to the same
-                    // manifest (task 6.2). The single --output of D3 is designed
-                    // to make them inseparable; this turns that into a checked
-                    // property, so a divergent pair fails the build here instead
-                    // of shipping two tags of different images.
-                    sh "./scripts/ci-verify-oci-refs.sh --sha '${sha}' /out/*.tar"
-
-                    // Same Dockerfiles, same build args and the same revision
-                    // label as the local scripts/build-images.sh path, checked
-                    // on the archives just built (task 6.3). The gate passes the
-                    // seven archives; --local is the host spot check that
-                    // compares an archive against the local image of the commit.
-                    sh "./scripts/ci-verify-build-parity.sh --sha '${sha}' /out/*.tar"
                 }
-            }
             }
         }
 
@@ -279,90 +279,90 @@ pipeline {
                         '''
                     }
                 }
-        // Syft reads the OCI archive the Images stage wrote, so the inventory
-        // needs neither a daemon nor a second export (design D4, task 7.1). The
-        // archives themselves are the list: an image that was not built cannot
-        // get an SBOM, and the matrix is not repeated here. /out is emptied at
-        // the start of Images, so no archive from a previous build can slip in.
-        // Output goes to the workspace `sbom/` directory, which is the glob the
-        // always-post archives (ciArchiveReports.groovy, design D10).
-        stage('SBOM') {
-            steps {
-                // --source-name and --source-version fill the CycloneDX
-                // metadata component: on its own, Syft names an archive by its
-                // path, and the spec requires each SBOM to identify its image
-                // and the commit that produced it. The short sha is derived as
-                // in the Images stage, so it matches the archive's tag.
-                sh '''
-                    rm -rf sbom
-                    mkdir -p sbom
-                    set -- /out/*.tar
-                    if [ ! -f "$1" ]; then
-                        echo 'SBOM: no OCI archive under /out; the Images stage has to run first' >&2
-                        exit 1
-                    fi
-                    sha="$(git rev-parse --short HEAD)"
-                    for archive in "$@"; do
-                        image="${archive##*/}"
-                        image="${image%.tar}"
-                        echo "SBOM: ${image} at ${sha}"
-                        syft --quiet --from oci-archive "$archive" \
-                          --source-name "domincipe/${image}" \
-                          --source-version "$sha" \
-                          -o "cyclonedx-json=sbom/${image}.cdx.json"
-                    done
-                '''
-            }
-        }
-        // Trivy 0.76.2 reads a `docker save` tarball or an OCI layout on disk,
-        // never an OCI archive (design D4: it fails with `stat …/index.json:
-        // not a directory`), so each .tar is extracted once and the directory is
-        // the scan input — no second export and no daemon. The layout shares the
-        // fate of the archive it came from: the next Images run empties /out.
-        //
-        // The stage scans every archive before failing, because the report of a
-        // red build is what diagnoses it (design D10). A finding listed in the
-        // versioned ignore file does not fail the build; Trivy omits it from the
-        // report, and the identifier with its justification and expiry lives in
-        // that file, which is the versioned record of the exception (design D4,
-        // D9; --show-suppressed is not used because on 0.76.2 it restores the
-        // findings suppressed by status or VEX, not those of --ignorefile). The
-        // severity and exit code are the gate of D9: relaxing them needs a spec
-        // change, never a pipeline parameter.
-        stage('Scan') {
-            steps {
-                sh '''
-                    rm -rf security
-                    mkdir -p security
-                    set -- /out/*.tar
-                    if [ ! -f "$1" ]; then
-                        echo 'Scan: no OCI archive under /out; the Images stage has to run first' >&2
-                        exit 1
-                    fi
-                    failed=''
-                    for archive in "$@"; do
-                        image="${archive##*/}"
-                        image="${image%.tar}"
-                        echo "Scan: ${image}"
-                        mkdir -p "/out/${image}"
-                        tar -xf "$archive" -C "/out/${image}"
-                        if trivy image --input "/out/${image}" \
-                          --ignorefile "${WORKSPACE}/ops/jenkins/.trivyignore" \
-                          --severity HIGH,CRITICAL --exit-code 1 \
-                          --format json --output "security/${image}.json"; then
-                            echo "Scan: ${image} passed the HIGH/CRITICAL gate"
-                        else
-                            echo "Scan: ${image} failed the HIGH/CRITICAL gate; see security/${image}.json" >&2
-                            failed="${failed} ${image}"
-                        fi
-                    done
-                    if [ -n "${failed}" ]; then
-                        echo "Scan: HIGH/CRITICAL findings in${failed}" >&2
-                        exit 1
-                    fi
-                '''
-            }
-        }
+                // Syft reads the OCI archive the Images stage wrote, so the inventory
+                // needs neither a daemon nor a second export (design D4, task 7.1). The
+                // archives themselves are the list: an image that was not built cannot
+                // get an SBOM, and the matrix is not repeated here. /out is emptied at
+                // the start of Images, so no archive from a previous build can slip in.
+                // Output goes to the workspace `sbom/` directory, which is the glob the
+                // always-post archives (ciArchiveReports.groovy, design D10).
+                stage('SBOM') {
+                    steps {
+                        // --source-name and --source-version fill the CycloneDX
+                        // metadata component: on its own, Syft names an archive by its
+                        // path, and the spec requires each SBOM to identify its image
+                        // and the commit that produced it. The short sha is derived as
+                        // in the Images stage, so it matches the archive's tag.
+                        sh '''
+                            rm -rf sbom
+                            mkdir -p sbom
+                            set -- /out/*.tar
+                            if [ ! -f "$1" ]; then
+                                echo 'SBOM: no OCI archive under /out; the Images stage has to run first' >&2
+                                exit 1
+                            fi
+                            sha="$(git rev-parse --short HEAD)"
+                            for archive in "$@"; do
+                                image="${archive##*/}"
+                                image="${image%.tar}"
+                                echo "SBOM: ${image} at ${sha}"
+                                syft --quiet --from oci-archive "$archive" \
+                                  --source-name "domincipe/${image}" \
+                                  --source-version "$sha" \
+                                  -o "cyclonedx-json=sbom/${image}.cdx.json"
+                            done
+                        '''
+                    }
+                }
+                // Trivy 0.76.2 reads a `docker save` tarball or an OCI layout on disk,
+                // never an OCI archive (design D4: it fails with `stat …/index.json:
+                // not a directory`), so each .tar is extracted once and the directory is
+                // the scan input — no second export and no daemon. The layout shares the
+                // fate of the archive it came from: the next Images run empties /out.
+                //
+                // The stage scans every archive before failing, because the report of a
+                // red build is what diagnoses it (design D10). A finding listed in the
+                // versioned ignore file does not fail the build; Trivy omits it from the
+                // report, and the identifier with its justification and expiry lives in
+                // that file, which is the versioned record of the exception (design D4,
+                // D9; --show-suppressed is not used because on 0.76.2 it restores the
+                // findings suppressed by status or VEX, not those of --ignorefile). The
+                // severity and exit code are the gate of D9: relaxing them needs a spec
+                // change, never a pipeline parameter.
+                stage('Scan') {
+                    steps {
+                        sh '''
+                            rm -rf security
+                            mkdir -p security
+                            set -- /out/*.tar
+                            if [ ! -f "$1" ]; then
+                                echo 'Scan: no OCI archive under /out; the Images stage has to run first' >&2
+                                exit 1
+                            fi
+                            failed=''
+                            for archive in "$@"; do
+                                image="${archive##*/}"
+                                image="${image%.tar}"
+                                echo "Scan: ${image}"
+                                mkdir -p "/out/${image}"
+                                tar -xf "$archive" -C "/out/${image}"
+                                if trivy image --input "/out/${image}" \
+                                  --ignorefile "${WORKSPACE}/ops/jenkins/.trivyignore" \
+                                  --severity HIGH,CRITICAL --exit-code 1 \
+                                  --format json --output "security/${image}.json"; then
+                                    echo "Scan: ${image} passed the HIGH/CRITICAL gate"
+                                else
+                                    echo "Scan: ${image} failed the HIGH/CRITICAL gate; see security/${image}.json" >&2
+                                    failed="${failed} ${image}"
+                                fi
+                            done
+                            if [ -n "${failed}" ]; then
+                                echo "Scan: HIGH/CRITICAL findings in${failed}" >&2
+                                exit 1
+                            fi
+                        '''
+                    }
+                }
             }
         }
     }
