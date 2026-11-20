@@ -77,7 +77,7 @@ Quality:  Backend (Maven: unit + slice + integration)  ∥  Frontend (npm)  ∥ 
 
 Se solapan los tres primeros porque no comparten recurso ni ficheros: Maven escribe `target/` y npm `node_modules/`, ambos fuera del contexto de build (`.dockerignore`), y las imágenes se construyen contra `buildkitd`, no contra el daemon de test. `E2E` va después de `Images` porque consume las imágenes construidas; `SBOM` y `Scan` leen los mismos archivos OCI de `/out` y solo escriben en directorios distintos (`sbom/`, `security/`), así que pueden ir en paralelo.
 
-*Desviación explícita respecto a la matriz acordada:* la conversación aprobó `Quality ∥ Integration → Images → E2E ∥ SBOM ∥ Scan`, con `Integration` como etapa propia. Al elegir una sola invocación de Maven, integration **vive dentro de la mitad Backend de Quality**, y `Images` se adelanta al primer grupo porque el contexto de build ya está aislado de las salidas de compilación. El efecto buscado —integration en paralelo con la calidad sin daemon y con la construcción de imágenes— se cumple; cambian los nombres de etapa. Si la medición (tarea 1.3) demuestra contención, `Images` vuelve al segundo grupo sin tocar nada más.
+*Desviación explícita respecto a la matriz acordada:* la conversación aprobó `Quality ∥ Integration → Images → E2E ∥ SBOM ∥ Scan`, con `Integration` como etapa propia. Al elegir una sola invocación de Maven, integration **vive dentro de la mitad Backend de Quality**, y `Images` se adelanta al primer grupo porque el contexto de build ya está aislado de las salidas de compilación. El efecto buscado —integration en paralelo con la calidad sin daemon y con la construcción de imágenes— se cumple; cambian los nombres de etapa. Si la medición (tarea 1.2) demuestra contención, `Images` vuelve al segundo grupo sin tocar nada más.
 
 ### D4. Testcontainers habla con el daemon por TCP, no por socket
 
@@ -85,7 +85,7 @@ Se solapan los tres primeros porque no comparten recurso ni ficheros: Maven escr
 
 *Por qué:* sin `TESTCONTAINERS_HOST_OVERRIDE` el síntoma es un `Connection refused` intermitente según el puerto, que es el fallo más caro de diagnosticar de todo el change. Ambas variables se declaran **una vez** en `environment {}` del `Jenkinsfile`, junto a `BUILDKIT_HOST`, y la etapa las imprime en el log (sin secretos) para que el build diga contra qué daemon está hablando.
 
-*Verificación pendiente antes de escribir los ITs (tarea 2.2):* comprobar en la documentación de Testcontainers que `TESTCONTAINERS_HOST_OVERRIDE` sigue siendo el nombre vigente en la 2.0.5 y que el reaper funciona contra un daemon por TCP; si el reaper se queja, `TESTCONTAINERS_RYUK_DISABLED=true` con limpieza explícita al final de la etapa, y se documenta el porqué.
+*Verificación pendiente antes de escribir los ITs (tarea 3.2):* comprobar en la documentación de Testcontainers que `TESTCONTAINERS_HOST_OVERRIDE` sigue siendo el nombre vigente en la 2.0.5 y que el reaper funciona contra un daemon por TCP; si el reaper se queja, `TESTCONTAINERS_RYUK_DISABLED=true` con limpieza explícita al final de la etapa, y se documenta el porqué.
 
 ### D5. Proyecto Compose propio para el e2e y el entorno, sin puertos
 
@@ -149,11 +149,11 @@ La guarda existía porque un `*IT.java` habría entrado en un `verify` sin daemo
 ## Risks / Trade-offs
 
 - **[`privileged` en el daemon de test]** un contenedor privilegiado es una vía de escape al host → solo existe en el stack local de CI, que no se despliega en producción; no recibe el PAT de GitHub (vive en el controlador), no publica puertos y solo es alcanzable desde `ci-net`; el camino de build sigue sin daemon. Queda escrito en §9 como excepción consciente.
-- **[4 cores y ≈5 GB libres]** `dind` + BuildKit + Maven + npm en paralelo pueden agotar la memoria → límites explícitos en el contenedor `dind` (memoria y CPU) como el resto del stack; la medición de la tarea 1.3 decide si `Images` sigue en el primer grupo. Si hay contención, se serializa sin cambiar specs.
-- **[Testcontainers contra un daemon remoto]** el reaper y los puertos publicados son el punto frágil → variables declaradas en `environment {}` y un *spike* de verificación (tarea 2.2) antes de escribir los ITs de verdad.
+- **[4 cores y ≈5 GB libres]** `dind` + BuildKit + Maven + npm en paralelo pueden agotar la memoria → límites explícitos en el contenedor `dind` (memoria y CPU) como el resto del stack; la medición de la tarea 1.2 decide si `Images` sigue en el primer grupo. Si hay contención, se serializa sin cambiar specs.
+- **[Testcontainers contra un daemon remoto]** el reaper y los puertos publicados son el punto frágil → variables declaradas en `environment {}` y un *spike* de verificación (tarea 3.2) antes de escribir los ITs de verdad.
 - **[`docker load` de un archivo OCI]** puede no aceptar los dos manifiestos → plan B: exportar `type=docker` con caché caliente (D5), y verificación temprana en la tarea 4.1. Nunca se reconstruye la imagen fuera de `Images`.
 - **[Desajuste de versión de Playwright]** imagen 1.65.0 y paquete npm 1.65.0 tienen que coincidir o el navegador no aparece → las dos quedan fijadas y la etapa las afirma al arrancar, con un mensaje que nombra ambas.
-- **[El gate se hace más largo]** integration, e2e y entorno añaden minutos → la matriz de D3 solapa lo que no compite y la tarea 1.3 mide cada etapa con su tiempo en `tasks.md`; si el total supera el umbral acordado, se abre la decisión de job aparte (Open Questions).
+- **[El gate se hace más largo]** integration, e2e y entorno añaden minutos → la matriz de D3 solapa lo que no compite y la tarea 1.2 mide cada etapa con su tiempo en `tasks.md`; si el total supera el umbral acordado, se abre la decisión de job aparte (Open Questions).
 - **[Un fallo del daemon tumba la mitad sin Docker]** es la consecuencia asumida en D3 → el paso `docker info` previo convierte un fallo de Testcontainers en un mensaje que nombra el daemon y el comando de arranque.
 
 ## Migration Plan
@@ -166,7 +166,7 @@ La guarda existía porque un `*IT.java` habría entrado en un `verify` sin daemo
 ## Open Questions
 
 - ¿Migrar a `docker:dind-rootless` si una verificación posterior demuestra que funciona sin `privileged`? Se puede responder sin tocar specs ni tareas: sería un cambio de imagen y `security_opt` (D1).
-- ¿Sacar integration a un job aparte si el gate supera un umbral de tiempo? Depende de la medición de la tarea 1.3 y cambiaría la protección de ramas, así que se decide con datos, no ahora.
+- ¿Sacar integration a un job aparte si el gate supera un umbral de tiempo? Depende de la medición de la tarea 1.2 y cambiaría la protección de ramas, así que se decide con datos, no ahora.
 - ¿Timeouts exactos de arranque del entorno e2e en CI? Se fijan con la primera medición, dentro de `up --wait` y del healthcheck, sin cambiar requisitos.
 
 
