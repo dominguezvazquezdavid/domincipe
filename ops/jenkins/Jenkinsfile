@@ -79,7 +79,17 @@ pipeline {
                 stage('Backend') {
                     steps {
                         sh '''
-                            docker info --format 'DOCKER_HOST={{.DockerRootDir}} server={{.ServerVersion}}' \
+                            # The context the level below depends on, printed so the log proves
+                            # which daemon it talked to instead of leaving it to inference (task
+                            # 5.1). Neither value is a secret: the PAT of the status travels only
+                            # through the credential binding of the post section. The shell expands
+                            # them, not Groovy — the block is single-quoted.
+                            echo "backend: DOCKER_HOST=${DOCKER_HOST} TESTCONTAINERS_HOST_OVERRIDE=${TESTCONTAINERS_HOST_OVERRIDE}"
+                            # The format names what it prints: root and server version are the
+                            # daemon's own fields, while the address is the variable above. It used
+                            # to read `DOCKER_HOST={{.DockerRootDir}}`, which labelled a path inside
+                            # the daemon with the name of the endpoint (build #6 of task 5.1).
+                            docker info --format 'daemon: root={{.DockerRootDir}} server={{.ServerVersion}}' \
                               || { echo "backend: the test daemon at ${DOCKER_HOST} does not answer; start the CI stack with 'docker compose -f ops/jenkins/docker-compose.yml up --wait'" >&2; exit 1; }
                         '''
                         // `clean` is the one difference from the chain §8 runs
@@ -203,6 +213,10 @@ pipeline {
                     steps {
                         sh '''
                             set -eu
+                            # Same evidence as Backend (task 5.1), plus the browser reference this
+                            # stage names when it creates the runner by hand: three values that are
+                            # not secrets and that the log has to show rather than imply.
+                            echo "E2E: DOCKER_HOST=${DOCKER_HOST} TESTCONTAINERS_HOST_OVERRIDE=${TESTCONTAINERS_HOST_OVERRIDE} PLAYWRIGHT_IMAGE=${PLAYWRIGHT_IMAGE}"
                             # The battery scripts read COMPOSE_FILE exactly like the canonical
                             # `up --wait`, so pointing it at base + ci makes them inspect this
                             # project and no other (the project name comes from the ci file).
