@@ -120,70 +120,70 @@ pipeline {
                         }
                     }
                 }
-            }
-            // Images joins the first group (change ci-integration, design D3): it builds against
-            // buildkitd, not against the test daemon, and the build context excludes target/,
-            // node_modules/ and dist/ (.dockerignore), so it shares no file with Maven or npm.
-            // A stage that can run earlier without contending anything is time the gate does not
-            // spend twice.
-            stage('Images') {
-                steps {
-                    script {
-                        // Artefacts in /out are per build — the OCI archives and,
-                        // from task 7.2 on, the layouts extracted from them — so the
-                        // stage starts by emptying the volume instead of letting it
-                        // grow with every run (design D3, checked in task 6.5).
-                        sh 'find /out -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
+                // Images joins the first group (change ci-integration, design D3): it builds against
+                // buildkitd, not against the test daemon, and the build context excludes target/,
+                // node_modules/ and dist/ (.dockerignore), so it shares no file with Maven or npm.
+                // A stage that can run earlier without contending anything is time the gate does not
+                // spend twice.
+                stage('Images') {
+                    steps {
+                        script {
+                            // Artefacts in /out are per build — the OCI archives and,
+                            // from task 7.2 on, the layouts extracted from them — so the
+                            // stage starts by emptying the volume instead of letting it
+                            // grow with every run (design D3, checked in task 6.5).
+                            sh 'find /out -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
 
-                        // Ask the daemon for its workers before building: an
-                        // unreachable socket fails here with the builder's own
-                        // message, not as a build that looks slow on a cold cache
-                        // (design D3, same probe as the compose healthcheck).
-                        sh 'buildctl debug workers'
+                            // Ask the daemon for its workers before building: an
+                            // unreachable socket fails here with the builder's own
+                            // message, not as a build that looks slow on a cold cache
+                            // (design D3, same probe as the compose healthcheck).
+                            sh 'buildctl debug workers'
 
-                        // Short SHA computed exactly as scripts/build-images.sh does
-                        // it. The immutable reference and the
-                        // org.opencontainers.image.revision label have to be the
-                        // same string in the local build and in the CI build of one
-                        // commit (design D3, checked in task 6.3).
-                        def sha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                            // Short SHA computed exactly as scripts/build-images.sh does
+                            // it. The immutable reference and the
+                            // org.opencontainers.image.revision label have to be the
+                            // same string in the local build and in the CI build of one
+                            // commit (design D3, checked in task 6.3).
+                            def sha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
 
-                        def buildImage = load('ops/jenkins/vars/ciBuildImage.groovy')
+                            def buildImage = load('ops/jenkins/vars/ciBuildImage.groovy')
 
-                        // Same Dockerfiles, build args and MODULE values as the
-                        // local script, so only the builder differs between the two
-                        // paths (design D3). One buildctl call per image writes one
-                        // OCI archive with the sha and the latest reference, which is
-                        // what makes them unable to drift apart.
-                        [
-                            [image: 'api-gateway',          dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/api-gateway']],
-                            [image: 'auth-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/auth-service']],
-                            [image: 'user-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/user-service']],
-                            [image: 'recipe-service',       dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/recipe-service']],
-                            [image: 'media-service',        dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/media-service']],
-                            [image: 'notification-service', dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/notification-service']],
-                            // The SPA bakes the API endpoint in at build time: without
-                            // it vite.config.ts fails (web-shell spec). The value is
-                            // the pipeline environment one, which equals the local
-                            // script's default (design D3).
-                            [image: 'web-frontend',         dockerfile: 'web-frontend.Dockerfile',   buildArgs: [VITE_API_BASE_URL: env.VITE_API_BASE_URL]],
-                        ].each { entry ->
-                            buildImage.call(entry + [sha: sha])
+                            // Same Dockerfiles, build args and MODULE values as the
+                            // local script, so only the builder differs between the two
+                            // paths (design D3). One buildctl call per image writes one
+                            // OCI archive with the sha and the latest reference, which is
+                            // what makes them unable to drift apart.
+                            [
+                                [image: 'api-gateway',          dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/api-gateway']],
+                                [image: 'auth-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/auth-service']],
+                                [image: 'user-service',         dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/user-service']],
+                                [image: 'recipe-service',       dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/recipe-service']],
+                                [image: 'media-service',        dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/media-service']],
+                                [image: 'notification-service', dockerfile: 'java-service.Dockerfile',   buildArgs: [MODULE: 'apps/services/notification-service']],
+                                // The SPA bakes the API endpoint in at build time: without
+                                // it vite.config.ts fails (web-shell spec). The value is
+                                // the pipeline environment one, which equals the local
+                                // script's default (design D3).
+                                [image: 'web-frontend',         dockerfile: 'web-frontend.Dockerfile',   buildArgs: [VITE_API_BASE_URL: env.VITE_API_BASE_URL]],
+                            ].each { entry ->
+                                buildImage.call(entry + [sha: sha])
+                            }
+
+                            // Both references of every archive must resolve to the same
+                            // manifest (task 6.2). The single --output of D3 is designed
+                            // to make them inseparable; this turns that into a checked
+                            // property, so a divergent pair fails the build here instead
+                            // of shipping two tags of different images.
+                            sh "./scripts/ci-verify-oci-refs.sh --sha '${sha}' /out/*.tar"
+
+                            // Same Dockerfiles, same build args and the same revision
+                            // label as the local scripts/build-images.sh path, checked
+                            // on the archives just built (task 6.3). The gate passes the
+                            // seven archives; --local is the host spot check that
+                            // compares an archive against the local image of the commit.
+                            sh "./scripts/ci-verify-build-parity.sh --sha '${sha}' /out/*.tar"
                         }
-
-                        // Both references of every archive must resolve to the same
-                        // manifest (task 6.2). The single --output of D3 is designed
-                        // to make them inseparable; this turns that into a checked
-                        // property, so a divergent pair fails the build here instead
-                        // of shipping two tags of different images.
-                        sh "./scripts/ci-verify-oci-refs.sh --sha '${sha}' /out/*.tar"
-
-                        // Same Dockerfiles, same build args and the same revision
-                        // label as the local scripts/build-images.sh path, checked
-                        // on the archives just built (task 6.3). The gate passes the
-                        // seven archives; --local is the host spot check that
-                        // compares an archive against the local image of the commit.
-                        sh "./scripts/ci-verify-build-parity.sh --sha '${sha}' /out/*.tar"
                     }
                 }
             }
