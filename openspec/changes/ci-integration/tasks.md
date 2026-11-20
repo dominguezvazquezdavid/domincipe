@@ -4,8 +4,24 @@
 
 - [x] 1.1 Crear `feat/ci-integration-release-battery` desde `develop` y declarar **0.3.0-SNAPSHOT** donde vive la versión: `pom.xml`, los diez `pom.xml` de módulo y `apps/web-frontend/package.json`. Verificación: `grep -rn '0\.2\.1-SNAPSHOT' pom.xml apps libs --include=pom.xml --include=package.json` sin coincidencias y `./scripts/verify-version.sh` en verde.
   Resultado (2026-11-19): rama creada desde `e0d1281`; doce ficheros (los once más `package-lock.json`) actualizados. `grep` de `0.2.1-SNAPSHOT` sin coincidencias y `./scripts/verify-version.sh --tree` → «OK feat/ci-integration-release-battery carries work beyond v0.2.0 and declares 0.3.0-SNAPSHOT».
-- [ ] 1.2 Medir la línea base del gate actual: arrancar el stack con `docker compose -f ops/jenkins/docker-compose.yml up --wait`, lanzar un build sobre `develop` y anotar en este fichero el tiempo de cada etapa (`Quality/Backend`, `Quality/Frontend`, `Images`, `SBOM`, `Scan`) tomado de las marcas del log. Verificación: la tabla de tiempos queda escrita aquí con fecha y commit, y sirve de comparación para 6.1.
+- [x] 1.2 Medir la línea base del gate actual: arrancar el stack con `docker compose -f ops/jenkins/docker-compose.yml up --wait`, lanzar un build sobre `develop` y anotar en este fichero el tiempo de cada etapa (`Quality/Backend`, `Quality/Frontend`, `Images`, `SBOM`, `Scan`) tomado de las marcas del log. Verificación: la tabla de tiempos queda escrita aquí con fecha y commit, y sirve de comparación para 6.1.
   Nota (2026-11-20): la rama `develop` no puede dar los tiempos por etapa «tomados de las marcas del log», porque su `Jenkinsfile` es anterior a `options { timestamps() }` (tarea 5.2) y las marcas no existen en su log. Tampoco están en `build.xml`: el del build #6 de PR #10 guarda **una sola** `<duration>` (`511890`, el total) y ningún elemento de etapa. La línea base hay que medirla en una ejecución que sí lleve el option —la misma rama con solo esa línea añadida, sin tocar nada más del gate— y anotar de dónde sale cada número.
+  Resultado (2026-11-20): medido sobre el **build #5 del job `develop`** —commit `e0d12812c2cd1bba986c9eb6c24a50fecf9377a8`, el HEAD de `origin/develop`; `SUCCESS`, 145,2 s—, que es un build nuevo sobre esa rama. Como `develop` no lleva marcas, el #5 es un **replay del #4**: su copia guardada del `Jenkinsfile` es byte a byte la de `develop` en ese commit (16 105 B, comparada con `git show origin/develop:ops/jenkins/Jenkinsfile`) y solo se le añadió `timestamps()` dentro de `options`, **una línea y ninguna otra**. El replay no escribe en el repositorio ni crea rama, que es la razón de medir así en vez de publicar una rama de usar y tirar. Stack arriba antes de lanzarlo (`up --wait` → `buildkitd`, `dind` y `jenkins` *healthy*), **caches calientes** (`maven-repo`, `npm-cache` y `buildkit-cache` reutilizados del #4): esa es la condición con la que hay que leer la tabla en 6.1.
+
+  | Etapa | Marcas del log (UTC, 2026-11-20) | Duración |
+  |---|---|---|
+  | `Quality/Backend` | 12:27:27.822 → 12:29:02.672 | **94,850 s** |
+  | `Quality/Frontend` | 12:27:27.584 → 12:27:51.292 | **23,708 s** |
+  | `Quality` (grupo; manda Backend) | 12:27:27.584 → 12:29:02.672 | **95,088 s** |
+  | `Images` | 12:29:03.482 → 12:29:16.807 | **13,325 s** |
+  | `SBOM` | 12:29:17.255 → 12:29:41.278 | **24,023 s** |
+  | `Scan` | 12:29:42.954 → 12:29:45.008 | **2,054 s** |
+  | `Declarative: Post Actions` (archivado + estado) | 12:29:45.110 → 12:29:47.855 | **2,745 s** |
+  | **Total del build** | arranque 12:27:22.817 → fin | **145,242 s** |
+
+  De dónde sale cada número: las marcas son las del `timestamper` (`[2026-11-20T12:27:27.584Z]`, **2 372** de las 2 517 líneas del `consoleText`); `Declarative: Checkout SCM` no lleva marca, así que su hueco se lee como la diferencia entre el arranque y la primera marca (4,77 s); el total es el `duration` del build en la API (`/job/domincipe/job/develop/5/api/json`). Las dos ramas de `Quality` comparten log, así que se separan por firma, como en 5.2: `Backend` son las líneas `+ ./mvnw`, `[INFO]`, `ci-suite-scope:` y `verify-modules:`; `Frontend` es el resto de marcas de su ventana (`Running in …/apps/web-frontend`, líneas de `npm`, `vite` y `vitest`). Comprobación cruzada: Maven informa `Total time: 01:32 min` y el #4, sin marcas y sobre el mismo commit, duró 156,6 s; la diferencia cabe en el `clean` de un árbol que el #4 ya había compilado.
+
+  Por dónde se lanzó, y la deuda que destapa: el replay exige autenticarse en el controlador, y se hizo con el `admin` del asistente y el contenido de `secrets/initialAdminPassword`, que **sigue siendo válido** (login `HTTP 200`) y da **control total** (`FullControlOnceLoggedInAuthorizationStrategy`). Esa superficie no la declara el CASC, así que queda anotada como deuda en `PROJECT.md` §9, «Seguridad del controlador», que es donde se cierra; no es la vía recomendada para operar el controlador, solo la que permitió medir sin escribir en el repositorio.
 
 ## 2. Daemon de test en el stack de CI
 
