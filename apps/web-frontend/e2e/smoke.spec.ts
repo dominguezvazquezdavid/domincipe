@@ -1,16 +1,5 @@
 import { expect, test } from '@playwright/test'
 
-// PROVOCACIÓN DE LA TAREA 4.5 — se revierte en el commit siguiente.
-//
-// Falla siempre, a propósito, para que un build de verdad recorra la etapa E2E en rojo y archive
-// la traza y el vídeo del smoke junto con los logs del proyecto (tareas 4.5 y 5.4 de
-// `ci-integration`). No describe producto y no sobrevive a este change.
-test('deliberate failure of task 4.5', async ({ page }) => {
-  await page.goto('/')
-
-  await expect(page.locator('#root')).not.toBeAttached()
-})
-
 // Smoke test of the served application: the wiring, not the product.
 //
 // Every assertion here is an invariant that survives the real screens: the bundle is served,

@@ -92,6 +92,23 @@ class ApiGatewayE2EIT {
                 .header("X-Request-Id", matchesPattern("[0-9a-f-]{36}"));
     }
 
+    /**
+     * Provocation of task 5.5, reverted in the next commit: a red {@code *IT.java} has to leave
+     * the commit in failure, because failsafe runs inside the same Maven invocation as the unit
+     * and slice levels and the Backend stage is what the gate reports. The assertion asks for a
+     * status the gateway never returns, so the red comes from the assertion and not from the
+     * container failing to start.
+     */
+    @Test
+    void deliberateFailureOfTask55() {
+        given()
+                .baseUri(baseUri())
+                .when()
+                .get("/actuator/health")
+                .then()
+                .statusCode(418);
+    }
+
     private static String baseUri() {
         return "http://" + GATEWAY.getHost() + ":" + GATEWAY.getMappedPort(HTTP_PORT);
     }
