@@ -23,6 +23,15 @@ pipeline {
         // Retention of a live job (design D10). The orphaned-item strategy in
         // casc/jenkins.yaml covers the jobs that disappear instead.
         buildDiscarder(logRotator(numToKeepStr: '10', daysToKeepStr: '30'))
+        // A time mark per console line (task 5.2). The two groups below interleave their output,
+        // and without a mark per line the overlap is only readable as interleaving, never as
+        // time: `build.xml` keeps one <duration> for the whole build and nothing per branch.
+        // It is declared here, and not as the global setting of the timestamper plugin, because
+        // the decision belongs to this pipeline and is reviewed with it. The price is symmetric
+        // and worth writing down: a branch whose Jenkinsfile predates this line —develop, for
+        // the baseline of task 1.2— carries no marks, so that baseline is read from the
+        // per-stage <duration> of `build.xml`, which the sequential gate of that commit allows.
+        timestamps()
     }
 
     environment {
