@@ -207,10 +207,11 @@ pipeline {
                             # `up --wait`, so pointing it at base + ci makes them inspect this
                             # project and no other (the project name comes from the ci file).
                             export COMPOSE_FILE=ops/compose/docker-compose.base.yml:ops/compose/docker-compose.ci.yml
-                            # The same commit identifier ciGitSha hands to ciBuildImage, so the
-                            # tag below names an image that exists: APP_IMAGE_TAG is what the
-                            # base file interpolates into every image reference.
-                            sha="${GIT_COMMIT:-$(git rev-parse HEAD)}"
+                            # The short sha the Images stage tagged the archives with, computed the
+                            # same way it does, so the tag below names an image that exists:
+                            # APP_IMAGE_TAG is what the base file interpolates into every image
+                            # reference, and `docker load` restores exactly those two tags.
+                            sha="$(git rev-parse --short HEAD)"
                             export APP_IMAGE_TAG="${sha}"
 
                             echo 'E2E: recreating the test project from zero'
@@ -352,12 +353,20 @@ pipeline {
                                   --format json --output "security/${image}.json"; then
                                     echo "Scan: ${image} passed the HIGH/CRITICAL gate"
                                 else
-                                    echo "Scan: ${image} failed the HIGH/CRITICAL gate; see security/${image}.json" >&2
+                                    # Trivy writes its report only when it finishes, so an
+                                    # interrupted scan (the failFast of this group) leaves no
+                                    # file: calling that a finding would blame the image for the
+                                    # build having been stopped (design D10).
+                                    if [ -s "security/${image}.json" ]; then
+                                        echo "Scan: ${image} failed the HIGH/CRITICAL gate; see security/${image}.json" >&2
+                                    else
+                                        echo "Scan: ${image} did not finish and wrote no report; see the log above" >&2
+                                    fi
                                     failed="${failed} ${image}"
                                 fi
                             done
                             if [ -n "${failed}" ]; then
-                                echo "Scan: HIGH/CRITICAL findings in${failed}" >&2
+                                echo "Scan: the gate did not pass for${failed}; see the per-image lines above" >&2
                                 exit 1
                             fi
                         '''
