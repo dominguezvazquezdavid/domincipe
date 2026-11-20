@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Provocación de la tarea 5.5 (change ci-integration), eliminada en el commit siguiente.
+  `junit` lee `**/target/surefire-reports/*.xml` y `apps/web-frontend` no es un módulo Maven,
+  así que `clean verify` no borra este directorio: es el mecanismo de informe rancio que dejó
+  UNSTABLE el build #2 de ci-pipeline, reproducido a propósito para ver que un build de etapas
+  verdes que `junit` marca UNSTABLE publica `failure` y no `success`.
+-->
+<testsuite name="com.domincipe.provoked.Task55PlantedReport" tests="1" failures="1" errors="0" skipped="0" time="0.001">
+  <testcase name="plantedFailureOfTask55" classname="com.domincipe.provoked.Task55PlantedReport" time="0.001">
+    <failure message="deliberate failure planted for task 5.5" type="java.lang.AssertionError">A committed report under a path that `./mvnw clean verify` does not clean (apps/web-frontend is not a Maven module), read by the junit step of the post section of an otherwise green build.</failure>
+  </testcase>
+</testsuite>
