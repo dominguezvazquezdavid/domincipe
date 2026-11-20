@@ -228,7 +228,16 @@ pipeline {
                             done
 
                             echo "E2E: starting the environment as ${APP_IMAGE_TAG}"
-                            docker compose --profile e2e --profile battery up --wait --wait-timeout 600
+                            # No profile here, and that is the point: the two one-shot helpers the
+                            # overlay declares are not part of the environment. The playwright
+                            # runner is started by this stage below, and battery-client is created
+                            # on demand by `compose run --no-deps` inside verify-shutdown.sh.
+                            # `up --wait` also watches the services it started, so raising the
+                            # runner with its profile makes the run end in `exited (0)` and fail
+                            # the stage before a single check -- build #4 of PR #10 did exactly
+                            # that. The profiles stay in `logs` and `down` below, whose job is to
+                            # include whatever is there.
+                            docker compose up --wait --wait-timeout 600
 
                             echo 'E2E: verifying the provisioned data'
                             ./scripts/verify-environment.sh
